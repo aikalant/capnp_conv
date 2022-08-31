@@ -1,0 +1,15 @@
+[package]
+name = "example"
+description = "An example of how to use the capnp_conv macro"
+version = "0.1.0"
+edition = "2018"
+license = "MIT"
+repository = "https://github.com/aikalant/capnp_conv"
+build = "build.rs"
+
+[dependencies]
+capnp = "0.14"
+capnp_conv = {path = "../capnp_conv"}
+
+[build-dependencies]
+capnpc = "0.14.7"

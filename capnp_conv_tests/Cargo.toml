@@ -1,0 +1,16 @@
+[package]
+name = "capnp_conv_tests"
+description = "Testing crate for capnp_conv"
+version = "0.1.0"
+edition = "2018"
+license = "MIT"
+repository = "https://github.com/aikalant/capnp_conv"
+build = "build.rs"
+
+
+[dependencies]
+capnp = "0.14"
+capnp_conv = {path = "../capnp_conv"}
+
+[build-dependencies]
+capnpc = "0.14.7"

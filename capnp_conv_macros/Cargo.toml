@@ -1,0 +1,16 @@
+[package]
+name = "capnp_conv_macros"
+description = "Provides attribute macros that implement capnp read/write traits"
+version = "0.1.0"
+edition = "2018"
+license = "MIT"
+repository = "https://github.com/aikalant/capnp_conv"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+heck = "0.4"
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = {version = "1.0", features = ["full", "extra-traits"]}

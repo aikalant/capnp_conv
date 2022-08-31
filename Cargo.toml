@@ -1,0 +1,9 @@
+[workspace]
+exclude = [
+  "example",
+  "capnp_conv_tests",
+]
+members = [
+  "capnp_conv",
+  "capnp_conv_macros",
+]
