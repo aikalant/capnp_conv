@@ -1,5 +1,6 @@
 mod common;
 mod optional;
+mod union_variant;
 
 use std::fmt::Debug;
 

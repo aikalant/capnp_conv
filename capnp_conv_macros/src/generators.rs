@@ -107,27 +107,22 @@ impl StructInfo {
         let reader_body = match match_arms.is_empty() {
             true => {
                 quote! {
-                  Self {
+                  Ok(Self {
                     #(#non_union_field_names: #non_union_readers,)*
-                  }
+                  })
                 }
             }
             false => {
                 quote! {
                   #(let #non_union_field_names = #non_union_readers;)*
-                  match reader.which()? {
+                  Ok(match reader.which()? {
                     #(#match_arms,)*
-                  }
+                  })
                 }
             }
         };
 
-        generate_readable_impl(
-            &self.ident,
-            capnp_path,
-            &self.generics,
-            quote!(Ok(#reader_body)),
-        )
+        generate_readable_impl(&self.ident, capnp_path, &self.generics, reader_body)
     }
     fn generate_try_from_impl(&self, capnp_path: &Path) -> TokenStream2 {
         generate_try_from_impl(&self.ident, capnp_path, &self.generics)
