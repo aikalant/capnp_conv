@@ -139,8 +139,8 @@ impl EnumInfo {
             quote!(#rust_name::#rust_field_name => #capnp_path::#capnp_field_name)
         });
         quote! {
-          impl #rust_name {
-            pub fn to_capnp_enum(&self) -> #capnp_path {
+          impl ::capnp_conv::RemoteEnum<#capnp_path> for #rust_name {
+            fn to_capnp_enum(&self) -> #capnp_path {
               match self {
                 #(#match_arms,)*
               }
@@ -153,7 +153,7 @@ impl EnumInfo {
         quote! {
           impl ::core::convert::Into<#capnp_path> for #rust_name {
             fn into(self) -> #capnp_path {
-              self.to_capnp_enum()
+              ::capnp_conv::RemoteEnum::to_capnp_enum(&self)
             }
           }
         }
@@ -471,7 +471,9 @@ impl FieldType {
             FieldType::Primitive(_) => quote!(builder.#setter(#deref_field)),
             FieldType::Blob(_) => quote!(builder.#setter(#ref_field)),
             FieldType::Struct(_) => quote!(#field.write(builder.reborrow().#initializer())),
-            FieldType::EnumRemote(_) => quote!(builder.#setter(#field.to_capnp_enum())),
+            FieldType::EnumRemote(_) => {
+                quote!(builder.#setter(::capnp_conv::RemoteEnum::to_capnp_enum(#ref_field)))
+            }
             FieldType::Enum(_) => quote!(builder.#setter(#deref_field)),
             FieldType::GroupOrUnion(_, _) => {
                 quote!(#field.write(builder.reborrow().#initializer()))
@@ -501,7 +503,9 @@ impl FieldType {
             FieldType::Primitive(_) => quote!(builder.set(idx as u32, *item)),
             FieldType::Blob(_) => quote!(builder.set(idx as u32, item)),
             FieldType::Struct(_) => quote!(item.write(builder.reborrow().get(idx as u32))),
-            FieldType::EnumRemote(_) => quote!(builder.set(idx as u32, item.to_capnp_enum())),
+            FieldType::EnumRemote(_) => {
+                quote!(builder.set(idx as u32, ::capnp_conv::RemoteEnum::to_capnp_enum(item)))
+            }
             FieldType::Enum(_) => quote!(builder.set(idx as u32, *item)),
             FieldType::List(item_type) => {
                 let field_setter = item_type.generate_struct_field_writer_list_item();
