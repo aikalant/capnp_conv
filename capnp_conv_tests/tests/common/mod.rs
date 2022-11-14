@@ -1,18 +1,15 @@
-mod test_rust;
+#[allow(unused, dead_code, clippy::all)]
+pub mod common_capnp;
+mod common_rust;
 
 use std::marker::PhantomData;
 
-use capnp::message::TypedBuilder;
-use capnp_conv::{Readable, Writeable};
-
-use crate::{
-    common::test_rust::{
-        BasicStruct, ComprehensiveStruct, ComprehensiveStructEnum, ComprehensiveStructGroup,
-        ComprehensiveStructUnion, ComprehensiveStructUnnamedUnion, ComprehensiveUnion,
-        GenericStruct,
-    },
-    test_capnp::{basic_struct, comprehensive_struct},
+use common_rust::{
+    BasicStruct, ComprehensiveStruct, ComprehensiveStructEnum, ComprehensiveStructGroup,
+    ComprehensiveStructUnion, ComprehensiveStructUnnamedUnion, ComprehensiveUnion, GenericStruct,
 };
+
+use crate::assert_identical;
 
 #[test]
 pub fn check() {
@@ -35,7 +32,7 @@ pub fn check() {
         u8_list_val: vec![5, 4, 3, 2, 1],
         nested_val: basic_struct.clone(),
         list_val: vec![vec![basic_struct.clone()]],
-        enum_val: crate::test_capnp::ComprehensiveStructEnum::Val2,
+        enum_val: common_capnp::ComprehensiveStructEnum::Val2,
         enum_val_remote: ComprehensiveStructEnum::Val2,
         group_val: ComprehensiveStructGroup {
             t_val: basic_struct.clone(),
@@ -55,13 +52,5 @@ pub fn check() {
         },
     };
 
-    let mut builder = TypedBuilder::<
-        comprehensive_struct::Owned<basic_struct::Owned, basic_struct::Owned>,
-    >::new_default();
-    input.write(builder.init_root()).unwrap();
-    let reader = builder.get_root_as_reader().unwrap();
-
-    let output = ComprehensiveStruct::<BasicStruct, BasicStruct>::read(reader).unwrap();
-
-    assert!(input == output)
+    assert_identical(&input);
 }

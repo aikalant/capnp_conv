@@ -10,4 +10,5 @@ Cargo.lock
 **/*.rs.bk
 
 /.vscode
-rustfmt.toml
+
+*_capnp.rs
