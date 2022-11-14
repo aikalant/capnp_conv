@@ -51,6 +51,58 @@ where
     }
 }
 
+// pub trait WritableStructList<T: for<'c> OwnedStruct<'c>> {
+//     fn write_as_struct_list(&self, builder: struct_list::Builder<T>);
+// }
+// impl<T, CapT> WritableStructList<CapT> for Vec<T>
+// where
+//     T: Writable<OwnedType = CapT>,
+//     for<'c> CapT: OwnedStruct<'c> + Owned<'c, Builder = <CapT as OwnedStruct<'c>>::Builder>,
+// {
+//     fn write_as_struct_list(&self, mut builder: struct_list::Builder<CapT>) {
+//         for (index, item) in self.iter().enumerate() {
+//             item.write(builder.reborrow().get(index as u32));
+//         }
+//     }
+// }
+
+// pub trait ReadableStructList<T: for<'c> OwnedStruct<'c>>: Sized {
+//     fn read_as_struct_list(reader: struct_list::Reader<T>) -> Result<Self>;
+// }
+// impl<T, CapT> ReadableStructList<CapT> for Vec<T>
+// where
+//     T: Readable<OwnedType = CapT>,
+//     for<'c> CapT: OwnedStruct<'c> + Owned<'c, Reader = <CapT as OwnedStruct<'c>>::Reader>,
+// {
+//     fn read_as_struct_list(reader: struct_list::Reader<CapT>) -> Result<Self> {
+//         reader.iter().map(|reader| T::read(reader)).collect()
+//     }
+// }
+
+// impl<T, CapT> Writable for Vec<T>
+// where
+//     T: Writable<OwnedType = CapT>,
+//     for<'c> CapT: OwnedStruct<'c> + Owned<'c, Builder = <CapT as OwnedStruct<'c>>::Builder>,
+// {
+//     type OwnedType = struct_list::Owned<CapT>;
+//     fn write(&self, mut builder: <Self::OwnedType as Owned>::Builder) {
+//         for (index, item) in self.iter().enumerate() {
+//             item.write(builder.reborrow().get(index as u32));
+//         }
+//     }
+// }
+
+// impl<T, CapT> Readable for Vec<T>
+// where
+//     T: Readable<OwnedType = CapT>,
+//     for<'c> CapT: OwnedStruct<'c> + Owned<'c, Reader = <CapT as OwnedStruct<'c>>::Reader>,
+// {
+//     type OwnedType = struct_list::Owned<CapT>;
+//     fn read(reader: <Self::OwnedType as Owned>::Reader) -> Result<Self> {
+//         reader.iter().map(|reader| T::read(reader)).collect()
+//     }
+// }
+
 //-----------------------------------------------------------------------------
 //---------------------------------Primitives----------------------------------
 //-----------------------------------------------------------------------------
@@ -69,6 +121,20 @@ impl ReadableList<prim_type> for primitive_list::Reader<'_, prim_type> {
         Ok(self.iter().collect())
     }
 }
+// #[duplicate_item(prim_type;[bool];[i8];[i16];[i32];[i64];[u8];[u16];[u32];[u64])]
+// impl Writable for Vec<prim_type> {
+//     type OwnedType = primitive_list::Owned<prim_type>;
+//     fn write(&self, mut builder: <Self::OwnedType as Owned>::Builder) {
+//         builder.write(self);
+//     }
+// }
+// #[duplicate_item(prim_type;[bool];[i8];[i16];[i32];[i64];[u8];[u16];[u32];[u64])]
+// impl Readable for Vec<prim_type> {
+//     type OwnedType = primitive_list::Owned<prim_type>;
+//     fn read(reader: <Self::OwnedType as Owned>::Reader) -> Result<Self> {
+//         reader.read()
+//     }
+// }
 
 //-----------------------------------------------------------------------------
 //---------------------------------Text----------------------------------------
@@ -86,6 +152,18 @@ impl ReadableList<String> for text_list::Reader<'_> {
         self.iter().map(|s| s.map(|s| s.to_owned())).collect()
     }
 }
+// impl Writable for Vec<String> {
+//     type OwnedType = text_list::Owned;
+//     fn write(&self, mut builder: <Self::OwnedType as Owned>::Builder) {
+//         builder.write(self)
+//     }
+// }
+// impl Readable for Vec<String> {
+//     type OwnedType = text_list::Owned;
+//     fn read(reader: <Self::OwnedType as Owned>::Reader) -> Result<Self> {
+//         reader.read()
+//     }
+// }
 
 //-----------------------------------------------------------------------------
 //---------------------------------Data----------------------------------------
@@ -166,6 +244,29 @@ impl<T: ToU16 + FromU16> ReadableEnumList<T> for Vec<T> {
         reader.read()
     }
 }
+
+// pub trait RemoteEnum<T>: From<T> + Into<T> {}
+// pub trait WritableRemoteEnumList<T: ToU16 + FromU16> {
+//     fn write(&self, builder: enum_list::Builder<T>);
+// }
+// impl<T: ToU16 + FromU16, Y: RemoteEnum<T>> WritableRemoteEnumList<T> for Vec<Y> {
+//     fn write(&self, mut builder: enum_list::Builder<T>) {
+//         for (index, item) in self.iter().enumerate() {
+//             builder.set(index as u32, unsafe { std::ptr::read(item) }.into());
+//         }
+//     }
+// }
+// pub trait ReadableRemoteEnumList<T: ToU16 + FromU16>: Sized {
+//     fn read(reader: enum_list::Reader<T>) -> Result<Self>;
+// }
+// impl<T: ToU16 + FromU16, Y: RemoteEnum<T>> ReadableRemoteEnumList<T> for Vec<Y> {
+//     fn read(reader: enum_list::Reader<T>) -> Result<Self> {
+//         reader
+//             .iter()
+//             .map(|s| s.map(Y::from).map_err(capnp::Error::from))
+//             .collect()
+//     }
+// }
 
 //-----------------------------------------------------------------------------
 //---------------------------------Lists---------------------------------------
