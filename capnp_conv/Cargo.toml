@@ -9,6 +9,3 @@ repository = "https://github.com/aikalant/capnp_conv"
 [dependencies]
 capnp = "0.14"
 capnp_conv_macros = {path = "../capnp_conv_macros"}
-
-[dev-dependencies]
-capnp_conv_tests = {path = "../capnp_conv_tests"}

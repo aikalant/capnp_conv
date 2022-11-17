@@ -3,13 +3,13 @@ use capnp_conv::capnp_conv;
 use crate::example_capnp as capnp_types;
 
 #[capnp_conv(capnp_types::basic_struct)]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BasicStruct {
     pub val: i32,
 }
 
 #[capnp_conv(capnp_types::example_struct)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub struct ExampleStruct<T> {
     pub i32_val: i32,
     pub text_val: String,
@@ -38,34 +38,34 @@ pub struct ExampleStruct<T> {
 }
 
 #[capnp_conv(capnp_types::generic_struct)]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct GenericStruct<T> {
     pub val: T,
 }
 
 #[capnp_conv(capnp_types::ExampleEnum)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum RemoteExampleEnum {
     Val1,
     Val2,
 }
 
 #[capnp_conv(capnp_types::example_struct::group_val)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub struct ExampleGroup<T> {
     pub val1: T,
     pub val2: T,
 }
 
 #[capnp_conv(capnp_types::example_struct::union_val)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum ExampleUnion<T> {
     Val1(T),
     Val2(T),
 }
 
 #[capnp_conv(capnp_types::example_struct)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum ExampleUnnamedUnion<T> {
     Val1(T),
     Val2(T),
