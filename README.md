@@ -311,7 +311,7 @@ struct ParentStruct(T,Y,R) {
 
  When reading/writing, `PhantomData` types will be automatically skipped, even without the field attribute.
 
- Unfortunately there is no "PhantomVariant" for rust enums, so for unions, instead make the second field of any variant a `PhantomData`:
+ There is no "PhantomVariant" for rust enums, so for unions, instead make the second field of any variant a `PhantomData`:
 
  ```rust
  pub enum UnionVal(T,Y,R) {
@@ -320,11 +320,44 @@ struct ParentStruct(T,Y,R) {
  }
  ``` 
 
+### Lists
+
+Top level list builders/reader can be written/read to from `Vec<T>`s using the `WritableList`/`ReadableList` traits.
+
+```capnp
+struct WrapperStruct {
+  textList @0 :List(Text);
+}
+```
+
+```rust
+let input = vec!["Text", "List"];
+builder.init_text_list(input.len() as u32).write(&input);
+let output = builder.get_text_list().unwrap().read().unwrap();
+```
+
+Structs containing nested lists can be converted with no limits, but `Vec<T>` list conversions only support one level of nesting (for example, `Vec::<Vec::<String>>` conversion is not currently supported).
+
+
+Remote enum lists require separate traits: `WritableRemoteEnumList`, `ReadableRemoteEnumList`.
+
+```capnp
+struct WrapperStruct {
+  #[capnp_conv(type = "remote_enum")]
+  remoteEnumList @0 :List(RemoteEnum);
+}
+```
+
+```rust
+let input = vec![RemoteEnum::Val1, RemoteEnum::Val2];
+builder.init_remote_enum_list(input.len() as u32).write_remote(&input);
+let output = builder.get_remote_enum_list().unwrap().read_remote().unwrap();
+```
  ## Future work
 
 Short term:
-- Add support for top level `Vec` read and write
-- Add support for `anypointer` type
+- Add support for `anypointer` type via helper attribute.
+- Add support for overriding individual field reading/writing via helper attribute.
 - Add more validations to allow the compiler to provide more clues when the macro is not properly used.
    - unions must have at least 2 fields (both enums and struct unions apply)
    - cannot have more than 1 unnamed union
@@ -338,6 +371,7 @@ Short term:
 - Confirm if as_turbofish() function is sufficient for all possible cases (specifically, nested generic types? `Type1<Type2<T>>`)
 
 Long term:
-- Allow boxed fields for the rare case of a struct/enum containing a field of its own type (with different generics).
+- Top level nested lists (capnp::list_list).
+- Allow boxed fields.
 - Allow structs to contain lifetimes and generic constraints that carry over to the generated impls.
 - Add a convenience `clear_enum_fields` function to struct represented capnp unions that sets all union fields to `None`.
