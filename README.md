@@ -49,8 +49,8 @@ The `capnp_conv` proc macro implements the `capnp_conv::Readable`, `capnp_conv::
 fn read(reader: capnp_struct::Reader) -> Result<RustStruct, capnp::Error> {
   RustStruct::read(reader)?
 }
-fn write(rust_struct: RustStruct, builder: capnp_struct::Builder) -> Result<(), capnp::Error> {
-  rust_struct.write(builder)?
+fn write(rust_struct: RustStruct, builder: capnp_struct::Builder) {
+  rust_struct.write(builder)
 }
 ```
 
@@ -203,17 +203,17 @@ struct CapnpStruct {
 ```rust
 #[capnp_conv(capnp_struct)]
 pub struct RustStruct {
-  #[capnp(name = "capVal")] //or #[capnp(name = "cap_val")]
+  #[capnp_conv(name = "capVal")] //or #[capnp_conv(name = "cap_val")]
   arbitrary_name: (),
-  #[capnp(name = "capnp_union")]
-  #[capnp(type = "union")]
+  #[capnp_conv(name = "capnp_union")]
+  #[capnp_conv(type = "union")]
   rust_union: RustUnnion,
 }
 #[capnp_conv(capnp_struct::capnp_union)]
 pub enum RustUnion {
-  #[capnp(name = "capVal1")]
+  #[capnp_conv(name = "capVal1")]
   ArbitraryName1(())
-  #[capnp(name = "cap_val2")]
+  #[capnp_conv(name = "cap_val2")]
   ArbitraryName2(())
 }
 ```
@@ -238,11 +238,11 @@ pub struct RustStruct {
 ```
 
 ### Skipped fields
-- Adding `#[capnp(skip_write)]` to a field's attributes will result in the field not being written. Similar to as if it were optional with `None`.
+- Adding `#[capnp_conv(skip_write)]` to a field's attributes will result in the field not being written. Similar to as if it were optional with `None`.
 
-- Adding `#[capnp(skip_read)]` to a field's attributes will result in the field never being read. During a read, it be set to the field type's default value (note the field type must implement the `Default` trait), or `None` if the field is optional. This can be futher configured by setting the field's `default` attribute (see below).
+- Adding `#[capnp_conv(skip_read)]` to a field's attributes will result in the field never being read. During a read, it be set to the field type's default value (note the field type must implement the `Default` trait), or `None` if the field is optional. This can be futher configured by setting the field's `default` attribute (see below).
 
-- `#[capnp(skip)]` skips both reading and writing.
+- `#[capnp_conv(skip)]` skips both reading and writing.
 
 - Unions cannot contain skipped fields.
 
@@ -339,6 +339,5 @@ Short term:
 
 Long term:
 - Allow boxed fields for the rare case of a struct/enum containing a field of its own type (with different generics).
-- Determine how cpu intensive the reader/writer `Reborrow()` function is, and see if is is possible to remove some of those calls in generated code.
 - Allow structs to contain lifetimes and generic constraints that carry over to the generated impls.
 - Add a convenience `clear_enum_fields` function to struct represented capnp unions that sets all union fields to `None`.

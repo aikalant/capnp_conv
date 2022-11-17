@@ -60,3 +60,14 @@ pub fn is_ptr_type(field_type: &FieldType) -> bool {
             | FieldType::GenericStruct(_, _)
     )
 }
+
+// copied from how https://github.com/capnproto/capnproto-rust/blob/master/capnpc
+// generates enum names
+pub fn capitalize_first_letter(s: &str) -> String {
+    let mut result_chars: Vec<char> = Vec::new();
+    for c in s.chars() {
+        result_chars.push(c)
+    }
+    result_chars[0] = result_chars[0].to_ascii_uppercase();
+    result_chars.into_iter().collect()
+}
