@@ -6,7 +6,7 @@ pub mod example_capnp {
 use std::vec;
 
 use capnp::message::TypedBuilder;
-use capnp_conv::{Readable, Writeable};
+use capnp_conv::{Readable, Writable};
 use example_capnp as capnp_types;
 
 #[allow(clippy::redundant_clone)]
@@ -41,7 +41,7 @@ fn main() {
         capnp_types::example_struct::Owned<capnp_types::basic_struct::Owned>,
     >::new_default();
 
-    input.write(builder.init_root()).unwrap();
+    input.write(builder.init_root());
 
     let reader = builder.get_root_as_reader().unwrap();
 
