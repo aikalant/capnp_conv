@@ -1,5 +1,5 @@
-#[allow(unused, dead_code, clippy::all)]
-pub mod common_capnp;
+#[allow(unused, dead_code, clippy::all, clippy::pedantic)]
+mod common_capnp;
 mod common_rust;
 
 use std::marker::PhantomData;

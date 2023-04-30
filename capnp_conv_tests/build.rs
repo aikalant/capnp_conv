@@ -4,7 +4,7 @@ use std::{
 };
 
 fn main() {
-    let dir = Path::new("./tests");
+    let dir = Path::new("tests");
     let mut files = vec![];
     recurse_schemas(dir.read_dir().unwrap(), &mut files);
     for file in files.iter() {

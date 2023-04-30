@@ -9,9 +9,7 @@ use capnp_conv::{Readable, Writable};
 
 fn assert_identical<T, CapT>(input: &T)
 where
-    T: PartialEq + Debug,
-    T: Writable<OwnedType = CapT>,
-    T: Readable<OwnedType = CapT>,
+    T: PartialEq + Debug + Writable<OwnedType = CapT> + Readable<OwnedType = CapT>,
     CapT: for<'c> Owned<'c>,
 {
     assert_match(input, input);
@@ -19,12 +17,8 @@ where
 
 fn assert_match<T, Y, Cap>(input: &T, expected_output: &Y)
 where
-    T: PartialEq + Debug,
-    T: Writable<OwnedType = Cap>,
-    T: Readable<OwnedType = Cap>,
-    Y: PartialEq + Debug,
-    Y: Writable<OwnedType = Cap>,
-    Y: Readable<OwnedType = Cap>,
+    T: PartialEq + Debug + Writable<OwnedType = Cap> + Readable<OwnedType = Cap>,
+    Y: PartialEq + Debug + Writable<OwnedType = Cap> + Readable<OwnedType = Cap>,
     Cap: for<'c> Owned<'c>,
 {
     let mut builder = TypedBuilder::<Cap>::new_default();
