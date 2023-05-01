@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-exclude = ["example", "capnp_conv_tests"]
-members = ["capnp_conv", "capnp_conv_macros"]
+exclude = ["example"]
+members = ["capnp_conv", "capnp_conv_macros", "capnp_conv_tests"]
 
 [workspace.package]
 edition = "2018"
