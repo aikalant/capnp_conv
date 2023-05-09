@@ -29,7 +29,7 @@ impl ItemInfo {
         };
         quote! {
           #(
-            #[allow(clippy::all, non_camel_case_types, unused_variables, unused_braces, unused_mut)]
+            #[allow(clippy::all, clippy::pedantic, non_camel_case_types, unused_variables, unused_braces, unused_mut)]
             #impls
           )*
         }
@@ -41,8 +41,8 @@ impl StructInfo {
         let field_writers: Vec<TokenStream2> = self
             .fields
             .iter()
-            .map(|field| match field.is_union_field {
-                true => {
+            .map(|field| {
+                if field.is_union_field {
                     let rust_field_name = &field.rust_name;
                     let field_writer = field.generate_field_writer_from_reference();
                     quote! {
@@ -50,8 +50,9 @@ impl StructInfo {
                         #field_writer;
                       }
                     }
+                } else {
+                    field.generate_field_writer_from_owned()
                 }
-                false => field.generate_field_writer_from_owned(),
             })
             .collect();
 
@@ -104,21 +105,18 @@ impl StructInfo {
             })
             .collect();
 
-        let reader_body = match match_arms.is_empty() {
-            true => {
-                quote! {
-                  Ok(Self {
-                    #(#non_union_field_names: #non_union_readers,)*
-                  })
-                }
+        let reader_body = if match_arms.is_empty() {
+            quote! {
+              Ok(Self {
+                #(#non_union_field_names: #non_union_readers,)*
+              })
             }
-            false => {
-                quote! {
-                  #(let #non_union_field_names = #non_union_readers;)*
-                  Ok(match reader.which()? {
-                    #(#match_arms,)*
-                  })
-                }
+        } else {
+            quote! {
+              #(let #non_union_field_names = #non_union_readers;)*
+              Ok(match reader.which()? {
+                #(#match_arms,)*
+              })
             }
         };
 
@@ -184,9 +182,10 @@ impl EnumInfo {
             .map(|field| {
                 let rust_variant_name = &field.rust_name;
                 let field_writer = field.generate_field_writer_from_reference();
-                let tuple_fields = match field.has_phantom_in_variant {
-                    true => quote!(val, _),
-                    false => quote!(val),
+                let tuple_fields = if field.has_phantom_in_variant {
+                    quote!(val, _)
+                } else {
+                    quote!(val)
                 };
 
                 quote!(Self::#rust_variant_name(#tuple_fields) => #field_writer)
@@ -210,9 +209,10 @@ impl EnumInfo {
         let capnp_field_name = field.get_capnp_name(ToSnakeCase::to_snake_case);
         let capnp_variant_name = to_ident(capnp_field_name.to_upper_camel_case());
         let field_reader = field.generate_field_reader(true, !self.generics.is_empty());
-        let variant_fields = match field.has_phantom_in_variant {
-          true => quote!(#field_reader, ::std::marker::PhantomData),
-          false => field_reader,
+        let variant_fields = if field.has_phantom_in_variant {
+          quote!(#field_reader, ::std::marker::PhantomData)
+        } else {
+          field_reader
         };
 
         quote! {
@@ -248,9 +248,10 @@ impl FieldInfo {
                 Some(default_override) => quote!(#default_override()),
                 None => self.generate_default_reader(),
             };
-            match self.is_optional {
-                true => quote!(Some(#field_reader)),
-                false => field_reader,
+            if self.is_optional {
+                quote!(Some(#field_reader))
+            } else {
+                field_reader
             }
         } else {
             let capnp_field_name = self.get_capnp_name(ToSnakeCase::to_snake_case);
@@ -273,9 +274,10 @@ impl FieldInfo {
                     quote!(Some(#field_reader))
                 }
             } else {
-                let reader_name = match pre_fetched {
-                    true => quote!(val),
-                    false => quote!(reader),
+                let reader_name = if pre_fetched {
+                    quote!(val)
+                } else {
+                    quote!(reader)
                 };
                 self.field_type.generate_field_reader(
                     reader_name,
@@ -371,13 +373,15 @@ impl FieldType {
         reborrow_readers: bool,
     ) -> TokenStream2 {
         let getter = format_ident!("get_{}", capnp_field_name);
-        let reader = match reborrow_readers {
-            true => quote!(#reader_name.reborrow()),
-            false => quote!(#reader_name),
+        let reader = if reborrow_readers {
+            quote!(#reader_name.reborrow())
+        } else {
+            quote!(#reader_name)
         };
-        let getter = match reader_pre_fetched {
-            true => quote!(#reader_name),
-            false => quote!(#reader.#getter()),
+        let getter = if reader_pre_fetched {
+            quote!(#reader_name)
+        } else {
+            quote!(#reader.#getter())
         };
         match self {
             FieldType::Phantom => unimplemented!(),
@@ -460,9 +464,10 @@ impl FieldType {
     ) -> TokenStream2 {
         let setter = format_ident!("set_{}", capnp_field_name);
         let initializer = format_ident!("init_{}", capnp_field_name);
-        let (deref_field, ref_field) = match is_owned {
-            true => (quote!(#field), quote!(&#field)),
-            false => (quote!(*#field), quote!(#field)),
+        let (deref_field, ref_field) = if is_owned {
+            (quote!(#field), quote!(&#field))
+        } else {
+            (quote!(*#field), quote!(#field))
         };
         match self {
             FieldType::Phantom => unimplemented!(),

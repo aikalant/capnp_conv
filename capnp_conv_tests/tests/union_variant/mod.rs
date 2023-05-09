@@ -1,5 +1,5 @@
-#[allow(unused, dead_code, clippy::all)]
-pub mod union_variant_capnp;
+#[allow(unused, dead_code, clippy::all, clippy::pedantic)]
+mod union_variant_capnp;
 mod union_variant_rust;
 
 use union_variant_rust::{BasicStruct, UnionStruct};

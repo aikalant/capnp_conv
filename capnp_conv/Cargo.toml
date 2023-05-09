@@ -2,10 +2,10 @@
 name = "capnp_conv"
 description = "Provides capnp write/read traits to convert from structs to readers/builders"
 version = "0.1.0"
-edition = "2018"
-license = "MIT"
-repository = "https://github.com/aikalant/capnp_conv"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
-capnp = "0.14"
-capnp_conv_macros = {path = "../capnp_conv_macros"}
+capnp.workspace = true
+capnp_conv_macros = { path = "../capnp_conv_macros" }

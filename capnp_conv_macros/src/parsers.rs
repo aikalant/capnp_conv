@@ -97,7 +97,7 @@ impl EnumInfo {
 impl FieldInfo {
     fn parse_field(field: &Field) -> Result<Self> {
         let attr_info = FieldAttributesInfo::new(&field.attrs)?;
-        let (field_type, field_wrapper) = FieldType::parse(&field.ty, &attr_info.type_specifier)?;
+        let (field_type, field_wrapper) = FieldType::parse(&field.ty, attr_info.type_specifier)?;
 
         if let FieldType::Phantom = field_type {
             if attr_info.skip
@@ -131,9 +131,10 @@ impl FieldInfo {
             FieldWrapper::None => (false, false, false),
         };
 
-        let (skip_read, skip_write) = match attr_info.skip {
-            true => (true, true),
-            false => (attr_info.skip_read, attr_info.skip_write),
+        let (skip_read, skip_write) = if attr_info.skip {
+            (true, true)
+        } else {
+            (attr_info.skip_read, attr_info.skip_write)
         };
 
         match field_type {
@@ -170,7 +171,7 @@ impl FieldInfo {
         let (variant_type, is_phantom) = get_variant_type(&variant.fields)?;
         let attr_info = FieldAttributesInfo::new(&variant.attrs)?;
         let (field_type, field_wrapper) = match variant_type {
-            Some(ty) => FieldType::parse(ty, &attr_info.type_specifier)?,
+            Some(ty) => FieldType::parse(ty, attr_info.type_specifier)?,
             None => (FieldType::EnumVariant, FieldWrapper::None),
         };
 
@@ -229,7 +230,7 @@ impl FieldInfo {
 }
 
 impl FieldType {
-    fn parse(ty: &Type, specifier: &FieldAttributeTypeSpecifier) -> Result<(Self, FieldWrapper)> {
+    fn parse(ty: &Type, specifier: FieldAttributeTypeSpecifier) -> Result<(Self, FieldWrapper)> {
         match try_peel_type(ty) {
             Some((ident, sub_type)) => match ident.to_string().as_str() {
                 "PhantomData" => Ok((FieldType::Phantom, FieldWrapper::None)),
@@ -246,7 +247,7 @@ impl FieldType {
             None => Ok((FieldType::parse_type(ty, specifier)?, FieldWrapper::None)),
         }
     }
-    fn parse_type(ty: &Type, specifier: &FieldAttributeTypeSpecifier) -> Result<Self> {
+    fn parse_type(ty: &Type, specifier: FieldAttributeTypeSpecifier) -> Result<Self> {
         match ty {
             Type::Tuple(tuple) if tuple.elems.is_empty() => Ok(FieldType::Void(tuple.clone())),
             Type::Path(path) => {
@@ -371,7 +372,11 @@ impl FieldAttributesInfo {
         };
 
         let mut processed_attrs = HashMap::new();
-        for attr in attributes.iter().filter(is_capnp_attr) {
+        for attr in attributes {
+            if !is_capnp_attr(attr) {
+                continue;
+            }
+
             let attr = parse2::<FieldAttribute>(attr.tokens.clone())?;
             let discriminant = discriminant(&attr);
             if let hash_map::Entry::Vacant(e) = processed_attrs.entry(discriminant) {
@@ -382,7 +387,7 @@ impl FieldAttributesInfo {
                         attr_info.type_specifier = type_specifier;
                     }
                     FieldAttribute::Default(_, default_path) => {
-                        attr_info.default = Some(default_path.clone())
+                        attr_info.default = Some(default_path.clone());
                     }
                     FieldAttribute::Skip(_) => attr_info.skip = true,
                     FieldAttribute::SkipRead(_) => attr_info.skip_read = true,
@@ -553,9 +558,10 @@ impl TryFrom<MetaNameValue> for FieldAttribute {
             }
             "default" => {
                 let path = parse_str::<Path>(&lit_str)?;
-                match path == as_turbofish(&path) {
-                    true => Ok(FieldAttribute::Default(name_value, path)),
-                    false => error(lit_span, "not in turbofish format"),
+                if path == as_turbofish(&path) {
+                    Ok(FieldAttribute::Default(name_value, path))
+                } else {
+                    error(lit_span, "not in turbofish format")
                 }
             }
             _ => error(ident.span(), "expected `name`, `type`, `default`"),
@@ -617,6 +623,6 @@ fn get_variant_type(fields: &Fields) -> Result<(Option<&Type>, bool)> {
                 "enum variants may only contain 1 field (plus an optional `PhantomData`",
             ),
         },
-        _ => unimplemented!(),
+        Fields::Named(_) => unimplemented!(),
     }
 }

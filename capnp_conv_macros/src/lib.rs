@@ -40,15 +40,15 @@ fn remove_capnp_field_attrs(input: &mut DeriveInput) {
                 drain_filter(&mut variant.attrs, is_capnp_attr);
             }
         }
-        _ => unimplemented!(),
+        syn::Data::Union(_) => unimplemented!(),
     }
 }
 
 //not using nightly so we need to do this manually
-fn drain_filter<T>(vec: &mut Vec<T>, predicate: fn(&&T) -> bool) {
+fn drain_filter<T>(vec: &mut Vec<T>, predicate: fn(&T) -> bool) {
     let mut i = 0;
     while i != vec.len() {
-        if predicate(&&vec[i]) {
+        if predicate(&vec[i]) {
             vec.remove(i);
         } else {
             i += 1;

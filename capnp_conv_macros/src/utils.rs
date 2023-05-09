@@ -9,10 +9,10 @@ use syn::{
 use crate::models::FieldType;
 
 pub fn error<T>(span: Span, message: impl Display) -> Result<T> {
-    Err(Error::new(span, format!("capnp_conv: {}", message)))
+    Err(Error::new(span, format!("capnp_conv: {message}")))
 }
 
-pub fn is_capnp_attr(attribute: &&Attribute) -> bool {
+pub fn is_capnp_attr(attribute: &Attribute) -> bool {
     attribute.style == AttrStyle::Outer
         && attribute.path.segments.last().unwrap().ident == "capnp_conv"
 }
@@ -45,7 +45,7 @@ pub fn as_turbofish(path: &Path) -> Path {
     let mut path = path.clone();
     for segment in &mut path.segments {
         if let PathArguments::AngleBracketed(bracketed) = &mut segment.arguments {
-            bracketed.colon2_token = Some(Colon2::default())
+            bracketed.colon2_token = Some(Colon2::default());
         }
     }
     path
@@ -66,7 +66,7 @@ pub fn is_ptr_type(field_type: &FieldType) -> bool {
 pub fn capitalize_first_letter(s: &str) -> String {
     let mut result_chars: Vec<char> = Vec::new();
     for c in s.chars() {
-        result_chars.push(c)
+        result_chars.push(c);
     }
     result_chars[0] = result_chars[0].to_ascii_uppercase();
     result_chars.into_iter().collect()

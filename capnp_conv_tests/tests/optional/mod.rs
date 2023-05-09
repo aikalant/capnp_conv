@@ -1,5 +1,5 @@
-#[allow(unused, dead_code, clippy::all)]
-pub mod optional_capnp;
+#[allow(unused, dead_code, clippy::all, clippy::pedantic)]
+mod optional_capnp;
 mod optional_rust;
 
 use optional_rust::{BasicStruct, TestDefaults, TestDefaultsOptional, TestOptional};
