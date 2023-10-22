@@ -1,0 +1,15 @@
+[build]
+rustflags = [
+  "-Wclippy::all",
+
+  "-Wclippy::cargo",
+  "-Aclippy::multiple-crate-versions",
+  "-Aclippy::cargo-common-metadata",
+
+  "-Wclippy::pedantic",
+  "-Aclippy::match_same_arms",
+  "-Aclippy::struct-excessive-bools",
+  "-Aclippy::missing-errors-doc",
+  "-Wclippy::print-stdout",
+  "-Wclippy::print-stderr",
+]

@@ -1,13 +1,14 @@
 [workspace]
 resolver = "2"
-exclude = ["example", "capnp_conv_tests"]
-members = ["capnp_conv", "capnp_conv_macros"]
+members = ["capnp_conv", "capnp_conv_macros", "capnp_conv_tests", "example"]
 
 [workspace.package]
-edition = "2018"
+authors = ["Aik Kalantarian <aik.kalantarian@gmail.com>"]
+version = "0.1.0"
+edition = "2021"
 license = "MIT"
 repository = "https://github.com/aikalant/capnp_conv"
-rust-version = "1.66"
+
 
 [workspace.dependencies]
 capnp = "0.14"

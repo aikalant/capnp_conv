@@ -9,7 +9,7 @@ use capnp::message::TypedBuilder;
 use capnp_conv::{Readable, Writable};
 use example_capnp as capnp_types;
 
-#[allow(clippy::redundant_clone)]
+#[allow(clippy::print_stdout)]
 fn main() {
     let basic_struct = rust_types::BasicStruct { val: 10 };
     let generic_struct = rust_types::GenericStruct::<rust_types::BasicStruct> {

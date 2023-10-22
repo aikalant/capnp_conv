@@ -1,11 +1,11 @@
 [package]
 name = "capnp_conv"
 description = "Provides capnp write/read traits to convert from structs to readers/builders"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
 capnp.workspace = true
-capnp_conv_macros = { path = "../capnp_conv_macros" }
+capnp_conv_macros = { path = "../capnp_conv_macros", version = "0.1.0" }

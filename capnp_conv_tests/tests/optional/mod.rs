@@ -1,4 +1,5 @@
-#[allow(unused, dead_code, clippy::all, clippy::pedantic)]
+#[allow(unused, clippy::all, clippy::pedantic)]
+#[rustfmt::skip]
 mod optional_capnp;
 mod optional_rust;
 
