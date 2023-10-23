@@ -1,6 +1,5 @@
 use std::{
-    collections::{hash_map, HashMap},
-    convert::TryFrom,
+    collections::{hash_map, HashMap, VecDeque},
     mem::discriminant,
 };
 
@@ -9,16 +8,17 @@ use quote::ToTokens;
 use syn::{
     parenthesized,
     parse::{Parse, ParseStream},
-    parse2, parse_str,
+    parse2,
     spanned::Spanned,
+    token::Comma,
     Attribute, Data, DataEnum, DataStruct, DeriveInput, Field, Fields, GenericArgument,
-    GenericParam, Generics, Lit, Meta, MetaList, MetaNameValue, NestedMeta, Path, PathArguments,
-    Result, Type, Variant,
+    GenericParam, Generics, Lit, LitStr, Meta, MetaNameValue, Path, PathArguments, Result, Type,
+    Variant,
 };
 
 use crate::{
-    models::{EnumInfo, FieldInfo, FieldType, FieldWrapper, ItemInfo, StructInfo},
-    utils::{as_turbofish, error, is_capnp_attr, try_peel_type},
+    models::{EnumInfo, FieldInfo, FieldType, ItemInfo, StructInfo},
+    utils::{error, is_capnp_attr, try_peel_type},
 };
 
 impl ItemInfo {
@@ -97,45 +97,83 @@ impl EnumInfo {
 impl FieldInfo {
     fn parse_field(field: &Field) -> Result<Self> {
         let attr_info = FieldAttributesInfo::new(&field.attrs)?;
-        let (field_type, field_wrapper) = FieldType::parse(&field.ty, attr_info.type_specifier)?;
+        let (field_type, wrappers) = FieldWrapper::peel(&field.ty);
+        let field_type = FieldType::parse_type(field_type, attr_info.type_specifier)?;
 
-        if let FieldType::Phantom = field_type {
-            if attr_info.skip
+        if attr_info.read_with.is_some() || attr_info.write_with.is_some() {
+            return error(field.span(), "Custom readers/writers not supported yet");
+        }
+
+        let mut is_phantom = false;
+        let mut is_optional = false;
+        let mut is_boxed = false;
+        let mut is_union_field = false;
+        for wrapper in &wrappers {
+            if matches!(wrapper, FieldWrapper::Option(_)) {
+                if is_boxed {
+                    return error(field.ty.span(), "Place Box inside of Option instead");
+                }
+                if attr_info.union_field {
+                    is_union_field = true;
+                } else {
+                    is_optional = true;
+                }
+            } else if matches!(wrapper, FieldWrapper::Box(_)) {
+                is_boxed = true;
+            } else if matches!(wrapper, FieldWrapper::PhantomData(_)) {
+                if wrappers.len() != 1 {
+                    return error(
+                        field.ty.span(),
+                        "PhantomData fields cannot have Box or Option wrappers",
+                    );
+                }
+                is_phantom = true;
+            }
+        }
+
+        if attr_info.union_field && !is_union_field {
+            return error(field.span(), "Union fields must have Option");
+        }
+
+        if is_phantom
+            && (attr_info.skip
                 || attr_info.skip_read
                 || attr_info.skip_write
                 || attr_info.union_field
                 || attr_info.default.is_some()
                 || attr_info.name_override.is_some()
+                || attr_info.read_with.is_some()
+                || attr_info.write_with.is_some()
                 || !matches!(
                     attr_info.type_specifier,
                     FieldAttributeTypeSpecifier::Default
-                )
-            {
-                return error(
-                    field.ty.span(),
-                    "PhantomData fields cannot have field attributes",
-                );
-            }
+                ))
+        {
+            return error(
+                field.span(),
+                "PhantomData fields cannot have field attributes",
+            );
         }
-
-        let (is_union_field, is_optional, is_boxed) = match field_wrapper {
-            FieldWrapper::Box(box_ident) if attr_info.union_field => {
-                return error(box_ident.span(), "`Box<T>` types cannot be `union_field`s")
-            }
-            FieldWrapper::None if attr_info.union_field => {
-                return error(field.ty.span(), "`union_field`s must be `Option<T>`")
-            }
-            FieldWrapper::Option(_) if attr_info.union_field => (true, false, false),
-            FieldWrapper::Option(_) => (false, true, false),
-            FieldWrapper::Box(_) => (false, false, true),
-            FieldWrapper::None => (false, false, false),
-        };
 
         let (skip_read, skip_write) = if attr_info.skip {
             (true, true)
         } else {
             (attr_info.skip_read, attr_info.skip_write)
         };
+
+        if attr_info.read_with.is_some() && skip_read {
+            return error(
+                field.span(),
+                "Cannot skip reads and specify read_with together",
+            );
+        }
+
+        if attr_info.write_with.is_some() && skip_write {
+            return error(
+                field.span(),
+                "Cannot skip writes and specify write_with together",
+            );
+        }
 
         match field_type {
             FieldType::UnnamedUnion(union_path, _) if is_union_field => {
@@ -150,10 +188,6 @@ impl FieldInfo {
             _ => {}
         }
 
-        if is_boxed {
-            todo!("`Box<T>`")
-        }
-
         Ok(FieldInfo {
             rust_name: field.ident.as_ref().unwrap().clone(),
             field_type,
@@ -165,25 +199,49 @@ impl FieldInfo {
             skip_read,
             skip_write,
             default_override: attr_info.default,
+            read_override: attr_info.read_with,
+            write_override: attr_info.write_with,
         })
     }
     fn parse_variant(variant: &Variant) -> Result<Self> {
         let (variant_type, is_phantom) = get_variant_type(&variant.fields)?;
         let attr_info = FieldAttributesInfo::new(&variant.attrs)?;
-        let (field_type, field_wrapper) = match variant_type {
-            Some(ty) => FieldType::parse(ty, attr_info.type_specifier)?,
-            None => (FieldType::EnumVariant, FieldWrapper::None),
+        let (field_type, wrappers) = match variant_type {
+            Some(ty) => {
+                let (field_type, wrappers) = FieldWrapper::peel(ty);
+                let field_type = FieldType::parse_type(field_type, attr_info.type_specifier)?;
+                (field_type, wrappers)
+            }
+            None => (FieldType::EnumVariant, vec![]),
         };
 
-        match  field_type {
-      FieldType::Phantom => return error(variant_type.unwrap().span(), "Enums may not have `PhantomData` in the first spot in their variants. Place them in the second slot."),
-      FieldType::UnnamedUnion(_, _) => return error(variant_type.unwrap().span(), "unions cannot contain unnamed unions."),
-      _ => {}
-    };
-
-        if let FieldWrapper::Option(ident) = field_wrapper {
-            return error(ident.span(), "Enums may not have `Option<T>`");
+        if attr_info.read_with.is_some() || attr_info.write_with.is_some() {
+            return error(variant.span(), "Custom readers/writers not supported yet");
         }
+
+        let mut is_boxed = false;
+        for wrapper in wrappers {
+            if matches!(wrapper, FieldWrapper::PhantomData(_)) {
+                return error(variant_type.unwrap().span(), "Enums may not have `PhantomData` in the first spot in their variants. Place them in the second slot.");
+            }
+            if matches!(wrapper, FieldWrapper::PhantomData(_)) {
+                return error(
+                    variant_type.unwrap().span(),
+                    "Enums may not have `Option<T>`",
+                );
+            }
+            if matches!(wrapper, FieldWrapper::Box(_)) {
+                is_boxed = true;
+            }
+        }
+
+        if matches!(field_type, FieldType::UnnamedUnion(..)) {
+            return error(
+                variant_type.unwrap().span(),
+                "unions cannot contain unnamed unions.",
+            );
+        }
+
         if attr_info.skip
             || attr_info.skip_read
             || attr_info.skip_write
@@ -208,12 +266,6 @@ impl FieldInfo {
             );
         }
 
-        let is_boxed = matches!(field_wrapper, FieldWrapper::Box(_));
-
-        if is_boxed {
-            todo!("`Box<T>`")
-        }
-
         Ok(FieldInfo {
             rust_name: variant.ident.clone(),
             field_type,
@@ -225,28 +277,13 @@ impl FieldInfo {
             skip_read: false,
             skip_write: false,
             default_override: None,
+            read_override: None,
+            write_override: None,
         })
     }
 }
 
 impl FieldType {
-    fn parse(ty: &Type, specifier: FieldAttributeTypeSpecifier) -> Result<(Self, FieldWrapper)> {
-        match try_peel_type(ty) {
-            Some((ident, sub_type)) => match ident.to_string().as_str() {
-                "PhantomData" => Ok((FieldType::Phantom, FieldWrapper::None)),
-                "Option" => Ok((
-                    FieldType::parse_type(sub_type, specifier)?,
-                    FieldWrapper::Option(ident.clone()),
-                )),
-                "Box" => Ok((
-                    FieldType::parse_type(sub_type, specifier)?,
-                    FieldWrapper::Box(ident.clone()),
-                )),
-                _ => Ok((FieldType::parse_type(ty, specifier)?, FieldWrapper::None)),
-            },
-            None => Ok((FieldType::parse_type(ty, specifier)?, FieldWrapper::None)),
-        }
-    }
     fn parse_type(ty: &Type, specifier: FieldAttributeTypeSpecifier) -> Result<Self> {
         match ty {
             Type::Tuple(tuple) if tuple.elems.is_empty() => Ok(FieldType::Void(tuple.clone())),
@@ -255,9 +292,11 @@ impl FieldType {
                 let last_segment = path.segments.last().unwrap();
                 let ident = &last_segment.ident;
 
-                if matches!(ident.to_string().as_str(), "Option" | "Box" | "PhantomData") {
+                if matches!(ident.to_string().as_str(), "Option" | "Box") {
                     // These are taken care of in before this
                     error(ident.span(), "invalid generic argument type")
+                } else if matches!(ident.to_string().as_str(), "PhantomData") {
+                    Ok(FieldType::Phantom)
                 } else if is_capnp_primative(path) {
                     Ok(FieldType::Primitive(path.clone()))
                 } else if *ident == "String"
@@ -349,10 +388,48 @@ enum FieldAttributeTypeSpecifier {
     Data,
 }
 
+#[derive(Debug)]
+pub enum FieldWrapper {
+    PhantomData(Ident),
+    Box(Ident),
+    Option(Ident),
+}
+
+impl FieldWrapper {
+    fn peel(ty: &Type) -> (&Type, Vec<FieldWrapper>) {
+        let mut wrappers = vec![];
+        return (peel_wrappers(ty, &mut wrappers), wrappers);
+
+        #[allow(clippy::items_after_statements)]
+        fn peel_wrappers<'a>(ty: &'a Type, wrappers: &mut Vec<FieldWrapper>) -> &'a Type {
+            match try_peel_type(ty) {
+                Some((ident, sub_type)) => match ident.to_string().as_str() {
+                    "PhantomData" => {
+                        wrappers.push(FieldWrapper::PhantomData(ident.clone()));
+                        ty
+                    }
+                    "Option" => {
+                        wrappers.push(FieldWrapper::Option(ident.clone()));
+                        return peel_wrappers(sub_type, wrappers);
+                    }
+                    "Box" => {
+                        wrappers.push(FieldWrapper::Box(ident.clone()));
+                        return peel_wrappers(sub_type, wrappers);
+                    }
+                    _ => ty,
+                },
+                None => ty,
+            }
+        }
+    }
+}
+
 struct FieldAttributesInfo {
     pub name_override: Option<Ident>,
     pub type_specifier: FieldAttributeTypeSpecifier,
     pub default: Option<Path>,
+    pub read_with: Option<(Path, bool)>,
+    pub write_with: Option<(Path, bool)>,
     pub skip: bool,
     pub skip_read: bool,
     pub skip_write: bool,
@@ -365,6 +442,8 @@ impl FieldAttributesInfo {
             name_override: None,
             type_specifier: FieldAttributeTypeSpecifier::Default,
             default: None,
+            read_with: None,
+            write_with: None,
             skip: false,
             skip_read: false,
             skip_write: false,
@@ -393,6 +472,12 @@ impl FieldAttributesInfo {
                     FieldAttribute::SkipRead(_) => attr_info.skip_read = true,
                     FieldAttribute::SkipWrite(_) => attr_info.skip_write = true,
                     FieldAttribute::UnionField(_) => attr_info.union_field = true,
+                    FieldAttribute::ReadWith {
+                        path, is_ptr_type, ..
+                    } => attr_info.read_with = Some((path, is_ptr_type)),
+                    FieldAttribute::WriteWith {
+                        path, is_ptr_type, ..
+                    } => attr_info.write_with = Some((path, is_ptr_type)),
                 }
             } else {
                 return error(attr.span(), "duplicate attribute");
@@ -435,13 +520,23 @@ impl FieldAttributesInfo {
 
 #[derive(Debug, Clone)]
 enum FieldAttribute {
-    Name(MetaNameValue, Ident),
-    Type(MetaNameValue, FieldAttributeTypeSpecifier),
-    Default(MetaNameValue, Path),
-    Skip(Path),
-    SkipRead(Path),
-    SkipWrite(Path),
-    UnionField(Path),
+    Name(Span, Ident),
+    Type(Span, FieldAttributeTypeSpecifier),
+    Default(Span, Path),
+    ReadWith {
+        span: Span,
+        path: Path,
+        is_ptr_type: bool,
+    },
+    WriteWith {
+        span: Span,
+        path: Path,
+        is_ptr_type: bool,
+    },
+    Skip(Span),
+    SkipRead(Span),
+    SkipWrite(Span),
+    UnionField(Span),
 }
 
 impl Spanned for FieldAttribute {
@@ -454,118 +549,162 @@ impl Spanned for FieldAttribute {
             FieldAttribute::SkipRead(a) => a.span(),
             FieldAttribute::SkipWrite(a) => a.span(),
             FieldAttribute::UnionField(a) => a.span(),
+            FieldAttribute::ReadWith { span, .. } => *span,
+            FieldAttribute::WriteWith { span, .. } => *span,
         }
     }
+}
+
+fn extract_pair_str(content: &Meta) -> Option<(&Ident, &LitStr)> {
+    if let Meta::NameValue(MetaNameValue { path, lit, .. }) = content {
+        if let Some(left) = path.get_ident() {
+            if let Lit::Str(right) = lit {
+                return Some((left, right));
+            }
+        }
+    }
+    None
+}
+fn extract_pair_ident(content: &Meta) -> Option<(&Ident, Ident)> {
+    if let Meta::NameValue(MetaNameValue { path, lit, .. }) = content {
+        if let Some(left) = path.get_ident() {
+            if let Lit::Str(right) = lit {
+                if let Ok(right) = right.parse::<Ident>() {
+                    return Some((left, right));
+                }
+            }
+        }
+    }
+    None
+}
+fn check_ptr_type(arg: &Meta) -> Result<bool> {
+    let mut is_ptr_type = false;
+    if let Some((key, value)) = extract_pair_ident(arg) {
+        if key.to_string().as_str() != "pointer_type" {
+            return error(key.span(), "expected \"pointer_type\"");
+        }
+        match value.to_string().as_str() {
+            "true" => is_ptr_type = true,
+            "false" => {}
+            _ => return error(value.span(), "expected \"true\" or \"false\""),
+        }
+    }
+    Ok(is_ptr_type)
 }
 
 impl Parse for FieldAttribute {
+    #[allow(clippy::too_many_lines)]
     fn parse(input: ParseStream) -> Result<Self> {
+        const UNKNOWN_KEY_MSG: &str = r#"expected `name`, `type`, `skip`, 
+      `skip_read`, `skip_write`, `default`, `read_with`, 
+      `write_with`, or `union_variant`"#;
+        const UNKNOWN_TYPE_MSG: &str = r#"expected `"enum"`, `"enum_remote"`, `"group"`, 
+      `"union"`, `"unnamed_union"`, or `"data"`"#;
+        const TOO_MANY_EXPRS_MSG: &str = r#"Only one field attribute macro allowed per line"#;
+        const EXPECTED_FUNCTION: &str = "Expected function";
+
         let content;
         parenthesized!(content in input);
-        let meta = content.parse::<NestedMeta>()?;
 
-        Ok(match meta {
-            NestedMeta::Lit(lit) => FieldAttribute::try_from(lit)?,
-            NestedMeta::Meta(meta) => match meta {
-                Meta::Path(path) => FieldAttribute::try_from(path)?,
-                Meta::NameValue(name_value) => FieldAttribute::try_from(name_value)?,
-                Meta::List(list) => FieldAttribute::try_from(list)?,
-            },
-        })
-    }
-}
-
-impl TryFrom<Lit> for FieldAttribute {
-    type Error = syn::Error;
-    fn try_from(lit: Lit) -> Result<Self> {
-        error(
-      lit.span(),
-      "expected `name`, `type`, `skip`, `skip_read`, `skip_write`, `default`, or `union_variant`",
-    )
-    }
-}
-
-impl TryFrom<MetaList> for FieldAttribute {
-    type Error = syn::Error;
-    fn try_from(list: MetaList) -> Result<Self> {
-        error(
-      list.span(),
-      "expected `name`, `type`, `skip`, `skip_read`, `skip_write`, `default`, or `union_variant`",
-    )
-    }
-}
-
-impl TryFrom<Path> for FieldAttribute {
-    type Error = syn::Error;
-    fn try_from(path: Path) -> Result<Self> {
-        let ident = match path.get_ident() {
-            Some(ident) => Ok(ident),
-            None => error(
-                path.span(),
-                "expected `skip`, `skip_read`, `skip_write`, or `union_variant`",
-            ),
-        }?;
-
-        match ident.to_string().as_str() {
-            "skip" => Ok(FieldAttribute::Skip(path.clone())),
-            "skip_read" => Ok(FieldAttribute::SkipRead(path.clone())),
-            "skip_write" => Ok(FieldAttribute::SkipWrite(path.clone())),
-            "union_variant" => Ok(FieldAttribute::UnionField(path.clone())),
-            _ => error(
-                ident.span(),
-                "expected `skip`, `skip_read`, `skip_write`, or `union_variant`",
-            ),
-        }
-    }
-}
-
-impl TryFrom<MetaNameValue> for FieldAttribute {
-    type Error = syn::Error;
-    fn try_from(name_value: MetaNameValue) -> Result<Self> {
-        let ident = match name_value.path.get_ident() {
-            Some(ident) => Ok(ident),
-            None => error(name_value.path.span(), "expected `name`, `type`, `default`"),
-        }?;
-
-        let lit_span = name_value.lit.span();
-        let lit_str = name_value
-            .lit
-            .to_token_stream()
-            .to_string()
-            .trim_matches('"')
-            .to_owned();
-
-        match ident.to_string().as_str() {
-            "name" => {
-                let mut ident = parse_str::<Ident>(&lit_str)?;
-                ident.set_span(lit_span);
-                Ok(FieldAttribute::Name(name_value, ident))
-            }
-            "type" => {
-                let type_specifier = match lit_str.as_str() {
-                    "enum" => Ok(FieldAttributeTypeSpecifier::Enum),
-                    "enum_remote" => Ok(FieldAttributeTypeSpecifier::EnumRemote),
-                    "group" => Ok(FieldAttributeTypeSpecifier::GroupOrUnion),
-                    "union" => Ok(FieldAttributeTypeSpecifier::GroupOrUnion),
-                    "unnamed_union" => Ok(FieldAttributeTypeSpecifier::UnnamedUnion),
-                    "data" => Ok(FieldAttributeTypeSpecifier::Data),
-                    _ => error(
-                        lit_span,
-                        r#"expected `"enum"`, `"enum_remote"`, `"group"`, `"union"`, `"unnamed_union"`, or `"data"` "#,
-                    ),
-                }?;
-                Ok(FieldAttribute::Type(name_value.clone(), type_specifier))
-            }
-            "default" => {
-                let path = parse_str::<Path>(&lit_str)?;
-                if path == as_turbofish(&path) {
-                    Ok(FieldAttribute::Default(name_value, path))
-                } else {
-                    error(lit_span, "not in turbofish format")
+        let args = content.parse_terminated::<Meta, Comma>(Meta::parse)?;
+        let mut args_list = VecDeque::from_iter(&args);
+        if let Some(arg) = args_list.pop_front() {
+            if let Some((key, value)) = extract_pair_str(arg) {
+                match key.to_string().as_str() {
+                    "default" => {
+                        if let Some(next) = args_list.pop_front() {
+                            return error(next.span(), TOO_MANY_EXPRS_MSG);
+                        }
+                        if let Ok(path) = value.parse::<Path>() {
+                            return Ok(FieldAttribute::Default(key.span(), path));
+                        }
+                        return error(value.span(), EXPECTED_FUNCTION);
+                    }
+                    "name" => {
+                        if let Some(next) = args_list.pop_front() {
+                            return error(next.span(), TOO_MANY_EXPRS_MSG);
+                        }
+                        if let Ok(ident) = value.parse::<Ident>() {
+                            return Ok(FieldAttribute::Name(key.span(), ident));
+                        }
+                        return error(value.span(), EXPECTED_FUNCTION);
+                    }
+                    "read_with" => {
+                        let is_ptr_type = if let Some(arg) = args_list.pop_back() {
+                            if let Some(next) = args_list.pop_back() {
+                                return error(next.span(), TOO_MANY_EXPRS_MSG);
+                            }
+                            check_ptr_type(arg)?
+                        } else {
+                            false
+                        };
+                        if let Ok(path) = value.parse::<Path>() {
+                            return Ok(FieldAttribute::ReadWith {
+                                span: key.span(),
+                                path,
+                                is_ptr_type,
+                            });
+                        }
+                        return error(value.span(), EXPECTED_FUNCTION);
+                    }
+                    "write_with" => {
+                        let is_ptr_type = if let Some(arg) = args_list.pop_back() {
+                            if let Some(next) = args_list.pop_back() {
+                                return error(next.span(), TOO_MANY_EXPRS_MSG);
+                            }
+                            check_ptr_type(arg)?
+                        } else {
+                            false
+                        };
+                        if let Ok(path) = value.parse::<Path>() {
+                            return Ok(FieldAttribute::WriteWith {
+                                span: key.span(),
+                                path,
+                                is_ptr_type,
+                            });
+                        }
+                        return error(value.span(), EXPECTED_FUNCTION);
+                    }
+                    "type" => {
+                        if let Some(next) = args_list.pop_front() {
+                            return error(next.span(), TOO_MANY_EXPRS_MSG);
+                        }
+                        let type_specifier = match value
+                            .to_token_stream()
+                            .to_string()
+                            .as_str()
+                            .trim_matches('"')
+                        {
+                            "enum" => FieldAttributeTypeSpecifier::Enum,
+                            "enum_remote" => FieldAttributeTypeSpecifier::EnumRemote,
+                            "group" => FieldAttributeTypeSpecifier::GroupOrUnion,
+                            "union" => FieldAttributeTypeSpecifier::GroupOrUnion,
+                            "unnamed_union" => FieldAttributeTypeSpecifier::UnnamedUnion,
+                            "data" => FieldAttributeTypeSpecifier::Data,
+                            _ => return error(value.span(), UNKNOWN_TYPE_MSG),
+                        };
+                        return Ok(FieldAttribute::Type(key.span(), type_specifier));
+                    }
+                    _ => {
+                        return error(key.span(), UNKNOWN_KEY_MSG);
+                    }
+                }
+            } else if let Meta::Path(path) = arg {
+                if let Some(next) = args_list.pop_front() {
+                    return error(next.span(), TOO_MANY_EXPRS_MSG);
+                }
+                match path.to_token_stream().to_string().as_str() {
+                    "skip" => return Ok(FieldAttribute::Skip(path.span())),
+                    "skip_read" => return Ok(FieldAttribute::SkipRead(path.span())),
+                    "skip_write" => return Ok(FieldAttribute::SkipWrite(path.span())),
+                    "union_variant" => return Ok(FieldAttribute::UnionField(path.span())),
+                    _ => {
+                        return error(path.span(), UNKNOWN_KEY_MSG);
+                    }
                 }
             }
-            _ => error(ident.span(), "expected `name`, `type`, `default`"),
         }
+        error(args.span(), UNKNOWN_KEY_MSG)
     }
 }
 

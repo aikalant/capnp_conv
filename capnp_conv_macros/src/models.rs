@@ -33,6 +33,8 @@ pub struct FieldInfo {
     pub skip_read: bool,
     pub skip_write: bool,
     pub default_override: Option<Path>,
+    pub read_override: Option<(Path, bool)>,
+    pub write_override: Option<(Path, bool)>,
 }
 
 #[derive(Debug)]
@@ -65,11 +67,4 @@ pub enum FieldType {
     List(Box<FieldType>),
     /// CapnpStruct(T1, T2, ...)
     GenericStruct(Path, Vec<FieldType>),
-}
-
-#[derive(Debug)]
-pub enum FieldWrapper {
-    None,
-    Box(Ident),
-    Option(Ident),
 }
