@@ -4,13 +4,13 @@ version = 3
 
 [[package]]
 name = "capnp"
-version = "0.14.11"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dca085c2c7d9d65ad749d450b19b551efaa8e3476a439bdca07aca8533097f3"
+checksum = "95e65021d89250bbfe7c2791789ced2c4bdc21b0e8bb59c64f3fd6145a5fd678"
 
 [[package]]
 name = "capnp_conv"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "capnp",
  "capnp_conv_macros",
@@ -18,7 +18,7 @@ dependencies = [
 
 [[package]]
 name = "capnp_conv_macros"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "capnp_conv_tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "capnp",
  "capnp_conv",
@@ -37,16 +37,16 @@ dependencies = [
 
 [[package]]
 name = "capnpc"
-version = "0.14.9"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdc9f1dc84666d4ff007b1a16c8f97db80764a624625979be05d869bcff43aaa"
+checksum = "fbbc3763fb3e6635188e9cc51ee11a26f8777c553ca377430818dbebaaf6042b"
 dependencies = [
  "capnp",
 ]
 
 [[package]]
 name = "example"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "capnp",
  "capnp_conv",
@@ -79,9 +79,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "1.0.109"
+version = "2.0.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
+checksum = "23e78b90f2fcf45d3e842032ce32e3f2d1545ba6636271dcbf24fa306d87be7a"
 dependencies = [
  "proc-macro2",
  "quote",

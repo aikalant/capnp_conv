@@ -8,8 +8,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-capnp = "0.14.7"
-capnp_conv = { path = "../capnp_conv" }
+capnp_conv.workspace = true
+capnp.workspace = true
 
 [build-dependencies]
-capnpc = "0.14.7"
+capnpc.workspace = true

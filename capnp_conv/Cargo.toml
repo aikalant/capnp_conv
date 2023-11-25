@@ -7,5 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+capnp_conv_macros.workspace = true
+
 capnp.workspace = true
-capnp_conv_macros = { path = "../capnp_conv_macros", version = "0.1.0" }

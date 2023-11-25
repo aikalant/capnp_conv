@@ -1,19 +1,13 @@
 use std::{
     collections::{hash_map, HashMap},
-    convert::TryFrom,
     mem::discriminant,
 };
 
-use proc_macro2::{Ident, Span};
+use proc_macro2::{Ident, TokenStream};
 use quote::ToTokens;
 use syn::{
-    parenthesized,
-    parse::{Parse, ParseStream},
-    parse2, parse_str,
-    spanned::Spanned,
-    Attribute, Data, DataEnum, DataStruct, DeriveInput, Field, Fields, GenericArgument,
-    GenericParam, Generics, Lit, Meta, MetaList, MetaNameValue, NestedMeta, Path, PathArguments,
-    Result, Type, Variant,
+    spanned::Spanned, Attribute, Data, DataEnum, DataStruct, DeriveInput, Field, Fields,
+    GenericArgument, GenericParam, Generics, LitStr, Path, PathArguments, Result, Type, Variant,
 };
 
 use crate::{
@@ -175,11 +169,22 @@ impl FieldInfo {
             None => (FieldType::EnumVariant, FieldWrapper::None),
         };
 
-        match  field_type {
-      FieldType::Phantom => return error(variant_type.unwrap().span(), "Enums may not have `PhantomData` in the first spot in their variants. Place them in the second slot."),
-      FieldType::UnnamedUnion(_, _) => return error(variant_type.unwrap().span(), "unions cannot contain unnamed unions."),
-      _ => {}
-    };
+        match field_type {
+            FieldType::Phantom => {
+                return error(
+                    variant_type.unwrap().span(),
+                    "Enums may not have `PhantomData` in the first spot in their variants. \
+                   Place them in the second slot.",
+                )
+            }
+            FieldType::UnnamedUnion(_, _) => {
+                return error(
+                    variant_type.unwrap().span(),
+                    "unions cannot contain unnamed unions.",
+                )
+            }
+            _ => {}
+        };
 
         if let FieldWrapper::Option(ident) = field_wrapper {
             return error(ident.span(), "Enums may not have `Option<T>`");
@@ -377,26 +382,84 @@ impl FieldAttributesInfo {
                 continue;
             }
 
-            let attr = parse2::<FieldAttribute>(attr.tokens.clone())?;
-            let discriminant = discriminant(&attr);
-            if let hash_map::Entry::Vacant(e) = processed_attrs.entry(discriminant) {
-                e.insert(attr.clone());
-                match attr {
-                    FieldAttribute::Name(_, ident) => attr_info.name_override = Some(ident.clone()),
-                    FieldAttribute::Type(_, type_specifier) => {
-                        attr_info.type_specifier = type_specifier;
-                    }
-                    FieldAttribute::Default(_, default_path) => {
-                        attr_info.default = Some(default_path.clone());
-                    }
-                    FieldAttribute::Skip(_) => attr_info.skip = true,
-                    FieldAttribute::SkipRead(_) => attr_info.skip_read = true,
-                    FieldAttribute::SkipWrite(_) => attr_info.skip_write = true,
-                    FieldAttribute::UnionField(_) => attr_info.union_field = true,
-                }
-            } else {
-                return error(attr.span(), "duplicate attribute");
+            attr.parse_nested_meta(|meta| {
+                let attr = if meta.path.is_ident("name") {
+                    let name = meta.value()?.parse::<LitStr>()?.parse::<Ident>()?;
+
+                    attr_info.name_override = Some(name.clone());
+                    FieldAttribute::Name(meta.path.clone(), name)
+                } else if meta.path.is_ident("type") {
+                    let lit_str = meta.value()?.parse::<LitStr>()?.value();
+
+                    match lit_str.as_str() {
+            "enum" => {
+              attr_info.type_specifier = FieldAttributeTypeSpecifier::Enum;
+              FieldAttribute::Type(meta.path.clone(), FieldAttributeTypeSpecifier::Enum)
             }
+            "enum_remote" => {
+              attr_info.type_specifier = FieldAttributeTypeSpecifier::EnumRemote;
+              FieldAttribute::Type(meta.path.clone(), FieldAttributeTypeSpecifier::EnumRemote)
+            }
+            "group" => {
+              attr_info.type_specifier = FieldAttributeTypeSpecifier::GroupOrUnion;
+              FieldAttribute::Type(meta.path.clone(), FieldAttributeTypeSpecifier::GroupOrUnion)
+            }
+            "union" => {
+              attr_info.type_specifier = FieldAttributeTypeSpecifier::GroupOrUnion;
+              FieldAttribute::Type(meta.path.clone(), FieldAttributeTypeSpecifier::GroupOrUnion)
+            }
+            "unnamed_union" => {
+              attr_info.type_specifier = FieldAttributeTypeSpecifier::UnnamedUnion;
+              FieldAttribute::Type(meta.path.clone(), FieldAttributeTypeSpecifier::UnnamedUnion)
+            }
+            "data" => {
+              attr_info.type_specifier = FieldAttributeTypeSpecifier::Data;
+              FieldAttribute::Type(meta.path.clone(), FieldAttributeTypeSpecifier::Data)
+            }
+            _ => {
+              return Err(meta.error(
+                "expected `enum`, `enum_remote`, `group`, `union`, `unnamed_union`, or `data`",
+              ))
+            }
+          }
+                } else if meta.path.is_ident("default") {
+                    let path = meta.value()?.parse::<LitStr>()?.parse::<Path>()?;
+
+                    if path == as_turbofish(&path) {
+                        attr_info.default = Some(path.clone());
+                        FieldAttribute::Default(meta.path.clone(), path)
+                    } else {
+                        return Err(meta.error("not in turbofish format"));
+                    }
+                } else if meta.path.is_ident("skip") {
+                    attr_info.skip = true;
+                    FieldAttribute::Skip(meta.path.clone())
+                } else if meta.path.is_ident("skip_read") {
+                    attr_info.skip_read = true;
+                    FieldAttribute::SkipRead(meta.path.clone())
+                } else if meta.path.is_ident("skip_write") {
+                    attr_info.skip_write = true;
+                    FieldAttribute::SkipWrite(meta.path.clone())
+                } else if meta.path.is_ident("union_variant") {
+                    attr_info.union_field = true;
+                    FieldAttribute::UnionField(meta.path.clone())
+                } else {
+                    return Err(meta.error(
+                        "expected `name`, `type`, `skip`, `skip_read`, \
+                `skip_write`, `default`, or `union_variant`",
+                    ));
+                };
+
+                let discriminant = discriminant(&attr);
+
+                if let hash_map::Entry::Vacant(e) = processed_attrs.entry(discriminant) {
+                    e.insert(attr);
+
+                    Ok(())
+                } else {
+                    Err(meta.error("duplicate attribute"))
+                }
+            })?;
         }
 
         // Validate
@@ -435,136 +498,25 @@ impl FieldAttributesInfo {
 
 #[derive(Debug, Clone)]
 enum FieldAttribute {
-    Name(MetaNameValue, Ident),
-    Type(MetaNameValue, FieldAttributeTypeSpecifier),
-    Default(MetaNameValue, Path),
+    Name(Path, Ident),
+    Type(Path, FieldAttributeTypeSpecifier),
+    Default(Path, Path),
     Skip(Path),
     SkipRead(Path),
     SkipWrite(Path),
     UnionField(Path),
 }
 
-impl Spanned for FieldAttribute {
-    fn span(&self) -> Span {
+impl ToTokens for FieldAttribute {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
-            FieldAttribute::Name(a, _) => a.span(),
-            FieldAttribute::Type(a, _) => a.span(),
-            FieldAttribute::Default(a, _) => a.span(),
-            FieldAttribute::Skip(a) => a.span(),
-            FieldAttribute::SkipRead(a) => a.span(),
-            FieldAttribute::SkipWrite(a) => a.span(),
-            FieldAttribute::UnionField(a) => a.span(),
-        }
-    }
-}
-
-impl Parse for FieldAttribute {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let content;
-        parenthesized!(content in input);
-        let meta = content.parse::<NestedMeta>()?;
-
-        Ok(match meta {
-            NestedMeta::Lit(lit) => FieldAttribute::try_from(lit)?,
-            NestedMeta::Meta(meta) => match meta {
-                Meta::Path(path) => FieldAttribute::try_from(path)?,
-                Meta::NameValue(name_value) => FieldAttribute::try_from(name_value)?,
-                Meta::List(list) => FieldAttribute::try_from(list)?,
-            },
-        })
-    }
-}
-
-impl TryFrom<Lit> for FieldAttribute {
-    type Error = syn::Error;
-    fn try_from(lit: Lit) -> Result<Self> {
-        error(
-      lit.span(),
-      "expected `name`, `type`, `skip`, `skip_read`, `skip_write`, `default`, or `union_variant`",
-    )
-    }
-}
-
-impl TryFrom<MetaList> for FieldAttribute {
-    type Error = syn::Error;
-    fn try_from(list: MetaList) -> Result<Self> {
-        error(
-      list.span(),
-      "expected `name`, `type`, `skip`, `skip_read`, `skip_write`, `default`, or `union_variant`",
-    )
-    }
-}
-
-impl TryFrom<Path> for FieldAttribute {
-    type Error = syn::Error;
-    fn try_from(path: Path) -> Result<Self> {
-        let ident = match path.get_ident() {
-            Some(ident) => Ok(ident),
-            None => error(
-                path.span(),
-                "expected `skip`, `skip_read`, `skip_write`, or `union_variant`",
-            ),
-        }?;
-
-        match ident.to_string().as_str() {
-            "skip" => Ok(FieldAttribute::Skip(path.clone())),
-            "skip_read" => Ok(FieldAttribute::SkipRead(path.clone())),
-            "skip_write" => Ok(FieldAttribute::SkipWrite(path.clone())),
-            "union_variant" => Ok(FieldAttribute::UnionField(path.clone())),
-            _ => error(
-                ident.span(),
-                "expected `skip`, `skip_read`, `skip_write`, or `union_variant`",
-            ),
-        }
-    }
-}
-
-impl TryFrom<MetaNameValue> for FieldAttribute {
-    type Error = syn::Error;
-    fn try_from(name_value: MetaNameValue) -> Result<Self> {
-        let ident = match name_value.path.get_ident() {
-            Some(ident) => Ok(ident),
-            None => error(name_value.path.span(), "expected `name`, `type`, `default`"),
-        }?;
-
-        let lit_span = name_value.lit.span();
-        let lit_str = name_value
-            .lit
-            .to_token_stream()
-            .to_string()
-            .trim_matches('"')
-            .to_owned();
-
-        match ident.to_string().as_str() {
-            "name" => {
-                let mut ident = parse_str::<Ident>(&lit_str)?;
-                ident.set_span(lit_span);
-                Ok(FieldAttribute::Name(name_value, ident))
-            }
-            "type" => {
-                let type_specifier = match lit_str.as_str() {
-                    "enum" => Ok(FieldAttributeTypeSpecifier::Enum),
-                    "enum_remote" => Ok(FieldAttributeTypeSpecifier::EnumRemote),
-                    "group" => Ok(FieldAttributeTypeSpecifier::GroupOrUnion),
-                    "union" => Ok(FieldAttributeTypeSpecifier::GroupOrUnion),
-                    "unnamed_union" => Ok(FieldAttributeTypeSpecifier::UnnamedUnion),
-                    "data" => Ok(FieldAttributeTypeSpecifier::Data),
-                    _ => error(
-                        lit_span,
-                        r#"expected `"enum"`, `"enum_remote"`, `"group"`, `"union"`, `"unnamed_union"`, or `"data"` "#,
-                    ),
-                }?;
-                Ok(FieldAttribute::Type(name_value.clone(), type_specifier))
-            }
-            "default" => {
-                let path = parse_str::<Path>(&lit_str)?;
-                if path == as_turbofish(&path) {
-                    Ok(FieldAttribute::Default(name_value, path))
-                } else {
-                    error(lit_span, "not in turbofish format")
-                }
-            }
-            _ => error(ident.span(), "expected `name`, `type`, `default`"),
+            FieldAttribute::Name(a, _) => tokens.extend(a.into_token_stream()),
+            FieldAttribute::Type(a, _) => tokens.extend(a.into_token_stream()),
+            FieldAttribute::Default(a, _) => tokens.extend(a.into_token_stream()),
+            FieldAttribute::Skip(a) => tokens.extend(a.into_token_stream()),
+            FieldAttribute::SkipRead(a) => tokens.extend(a.into_token_stream()),
+            FieldAttribute::SkipWrite(a) => tokens.extend(a.into_token_stream()),
+            FieldAttribute::UnionField(a) => tokens.extend(a.into_token_stream()),
         }
     }
 }

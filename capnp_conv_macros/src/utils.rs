@@ -3,7 +3,7 @@ use std::fmt::Display;
 use proc_macro2::{Ident, Span};
 use quote::{format_ident, IdentFragment};
 use syn::{
-    token::Colon2, AttrStyle, Attribute, Error, GenericArgument, Path, PathArguments, Result, Type,
+    token::PathSep, AttrStyle, Attribute, Error, GenericArgument, Path, PathArguments, Result, Type,
 };
 
 use crate::models::FieldType;
@@ -14,7 +14,7 @@ pub fn error<T>(span: Span, message: impl Display) -> Result<T> {
 
 pub fn is_capnp_attr(attribute: &Attribute) -> bool {
     attribute.style == AttrStyle::Outer
-        && attribute.path.segments.last().unwrap().ident == "capnp_conv"
+        && attribute.path().segments.last().unwrap().ident == "capnp_conv"
 }
 
 pub fn to_ident(fragment: impl IdentFragment) -> Ident {
@@ -45,7 +45,7 @@ pub fn as_turbofish(path: &Path) -> Path {
     let mut path = path.clone();
     for segment in &mut path.segments {
         if let PathArguments::AngleBracketed(bracketed) = &mut segment.arguments {
-            bracketed.colon2_token = Some(Colon2::default());
+            bracketed.colon2_token = Some(PathSep::default());
         }
     }
     path

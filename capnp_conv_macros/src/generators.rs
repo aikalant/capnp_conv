@@ -542,11 +542,11 @@ fn generate_writable_impl(
       impl<#(#generics, #capnp_generics),*> ::capnp_conv::Writable for #rust_name<#(#generics),*>
       where
         #(#generics: ::capnp_conv::Writable<OwnedType = #capnp_generics>,)*
-        #(#capnp_generics: for<'c> ::capnp::traits::Owned<'c>,)*
+        #(#capnp_generics: ::capnp::traits::Owned,)*
       {
         type OwnedType = #capnp_path::Owned<#(#capnp_generics),*>;
 
-        fn write(&self, mut builder: <Self::OwnedType as ::capnp::traits::Owned>::Builder) {
+        fn write(&self, mut builder: <Self::OwnedType as ::capnp::traits::Owned>::Builder<'_>) {
           #func_body
         }
       }
@@ -564,12 +564,12 @@ fn generate_readable_impl(
       impl<#(#generics, #capnp_generics),*> ::capnp_conv::Readable for #rust_name<#(#generics),*>
       where
         #(#generics: ::capnp_conv::Readable<OwnedType = #capnp_generics>,)*
-        #(#capnp_generics: for<'c> ::capnp::traits::Owned<'c>,)*
+        #(#capnp_generics: ::capnp::traits::Owned,)*
       {
         type OwnedType = #capnp_path::Owned<#(#capnp_generics),*>;
 
         fn read(
-          reader: <Self::OwnedType as ::capnp::traits::Owned>::Reader
+          reader: <Self::OwnedType as ::capnp::traits::Owned>::Reader<'_>
         ) -> ::capnp::Result<Self> {
           #func_body
         }
@@ -589,7 +589,7 @@ fn generate_try_from_impl(
       for #rust_name<#(#generics),*>
       where
         #(#generics: ::capnp_conv::Readable<OwnedType = #capnp_generics>,)*
-        #(#capnp_generics: for<'c> ::capnp::traits::Owned<'c>,)*
+        #(#capnp_generics: ::capnp::traits::Owned,)*
       {
         type Error = ::capnp::Error;
 
