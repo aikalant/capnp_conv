@@ -265,11 +265,12 @@ impl FieldType {
                     error(ident.span(), "invalid generic argument type")
                 } else if is_capnp_primative(path) {
                     Ok(FieldType::Primitive(path.clone()))
-                } else if *ident == "String"
-                    || (matches!(specifier, FieldAttributeTypeSpecifier::Data)
-                        && is_capnp_data_type(path))
+                } else if *ident == "String" {
+                    Ok(FieldType::Text(path.clone()))
+                } else if matches!(specifier, FieldAttributeTypeSpecifier::Data)
+                    && is_capnp_data_type(path)
                 {
-                    Ok(FieldType::Blob(path.clone()))
+                    Ok(FieldType::Data(path.clone()))
                 } else {
                     match &last_segment.arguments {
                         PathArguments::None => match specifier {

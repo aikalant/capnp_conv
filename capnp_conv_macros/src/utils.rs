@@ -54,7 +54,8 @@ pub fn as_turbofish(path: &Path) -> Path {
 pub fn is_ptr_type(field_type: &FieldType) -> bool {
     matches!(
         field_type,
-        FieldType::Blob(_)
+        FieldType::Data(_)
+            | FieldType::Text(_)
             | FieldType::Struct(_)
             | FieldType::List(_)
             | FieldType::GenericStruct(_, _)

@@ -4,18 +4,18 @@ members = ["capnp_conv", "capnp_conv_macros", "capnp_conv_tests", "example"]
 
 [workspace.package]
 authors = ["Aik Kalantarian <aik.kalantarian@gmail.com>"]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/aikalant/capnp_conv"
 
 
 [workspace.dependencies]
-capnp_conv = { path = "capnp_conv", version = "0.2.0" }
-capnp_conv_macros = { path = "capnp_conv_macros", version = "0.2.0" }
+capnp_conv = { path = "capnp_conv", version = "0.3.0" }
+capnp_conv_macros = { path = "capnp_conv_macros", version = "0.3.0" }
 
-capnp = "0.17"
-capnpc = "0.17"
+capnp = "0.18"
+capnpc = "0.18"
 heck = "0.4"
 proc-macro2 = "1.0"
 quote = "1.0"

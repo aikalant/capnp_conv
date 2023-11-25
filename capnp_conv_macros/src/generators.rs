@@ -293,7 +293,8 @@ impl FieldInfo {
         let path = match &self.field_type {
             FieldType::Void(_) => return quote!(()),
             FieldType::Primitive(path) => path,
-            FieldType::Blob(path) => path,
+            FieldType::Data(path) => path,
+            FieldType::Text(path) => path,
             FieldType::Struct(path) => path,
             FieldType::EnumRemote(path) => path,
             FieldType::Enum(path) => path,
@@ -388,7 +389,8 @@ impl FieldType {
             FieldType::EnumVariant => unimplemented!(),
             FieldType::Void(_) => quote!(()),
             FieldType::Primitive(_) => quote!(#getter),
-            FieldType::Blob(_) => quote!(#getter?.to_owned()),
+            FieldType::Data(_) => quote!(#getter?.to_owned()),
+            FieldType::Text(_) => quote!(#getter?.to_string()?),
             FieldType::Struct(struct_path) => {
                 let struct_path = as_turbofish(struct_path);
                 quote!(#struct_path::read(#getter?)?)
@@ -428,7 +430,8 @@ impl FieldType {
         match self {
             FieldType::Void(_) => quote!(()),
             FieldType::Primitive(_) => quote!(reader.get(idx)),
-            FieldType::Blob(_) => quote!(reader.get(idx)?.to_owned()),
+            FieldType::Data(_) => quote!(reader.get(idx)?.to_owned()),
+            FieldType::Text(_) => quote!(reader.get(idx)?.to_string()?),
             FieldType::Struct(struct_path) => {
                 let struct_path = as_turbofish(struct_path);
                 quote!(#struct_path::read(reader.get(idx))?)
@@ -474,7 +477,8 @@ impl FieldType {
             FieldType::EnumVariant => unimplemented!(),
             FieldType::Void(_) => quote!(builder.#setter(())),
             FieldType::Primitive(_) => quote!(builder.#setter(#deref_field)),
-            FieldType::Blob(_) => quote!(builder.#setter(#ref_field)),
+            FieldType::Data(_) => quote!(builder.#setter(#ref_field)),
+            FieldType::Text(_) => quote!(builder.#setter(#field.as_str().into())),
             FieldType::Struct(_) => quote!(#field.write(builder.reborrow().#initializer())),
             FieldType::EnumRemote(_) => {
                 quote!(builder.#setter(::capnp_conv::RemoteEnum::to_capnp_enum(#ref_field)))
@@ -506,7 +510,8 @@ impl FieldType {
         match self {
             FieldType::Void(_) => quote!(builder.set(idx as u32, ())),
             FieldType::Primitive(_) => quote!(builder.set(idx as u32, *item)),
-            FieldType::Blob(_) => quote!(builder.set(idx as u32, item)),
+            FieldType::Data(_) => quote!(builder.set(idx as u32, item)),
+            FieldType::Text(_) => quote!(builder.set(idx as u32, item)),
             FieldType::Struct(_) => quote!(item.write(builder.reborrow().get(idx as u32))),
             FieldType::EnumRemote(_) => {
                 quote!(builder.set(idx as u32, ::capnp_conv::RemoteEnum::to_capnp_enum(item)))

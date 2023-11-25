@@ -44,8 +44,10 @@ pub enum FieldType {
     Void(TypeTuple),
     /// bool, i8/16/32/64, u8/16/32/64, f32/64
     Primitive(Path),
-    /// String (Text) or Vec<u8> (Data)
-    Blob(Path),
+    /// Vec<u8>
+    Data(Path),
+    /// String
+    Text(Path),
     /// Non-generic capnp structs
     Struct(Path),
     /// Requires field attribute #[capnp_conv(type = "enum")]
