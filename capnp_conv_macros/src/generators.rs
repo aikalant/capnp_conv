@@ -478,7 +478,7 @@ impl FieldType {
             FieldType::Void(_) => quote!(builder.#setter(())),
             FieldType::Primitive(_) => quote!(builder.#setter(#deref_field)),
             FieldType::Data(_) => quote!(builder.#setter(#ref_field)),
-            FieldType::Text(_) => quote!(builder.#setter(#field.as_str().into())),
+            FieldType::Text(_) => quote!(builder.#setter(#field.as_str())),
             FieldType::Struct(_) => quote!(#field.write(builder.reborrow().#initializer())),
             FieldType::EnumRemote(_) => {
                 quote!(builder.#setter(::capnp_conv::RemoteEnum::to_capnp_enum(#ref_field)))
