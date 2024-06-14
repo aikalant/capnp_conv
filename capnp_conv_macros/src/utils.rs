@@ -58,7 +58,7 @@ pub fn is_ptr_type(field_type: &FieldType) -> bool {
             | FieldType::Text(_)
             | FieldType::Struct(_)
             | FieldType::List(_)
-            | FieldType::GenericStruct(_, _)
+            | FieldType::GenericStruct(_)
     )
 }
 

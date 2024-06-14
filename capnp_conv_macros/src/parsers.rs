@@ -132,13 +132,13 @@ impl FieldInfo {
         };
 
         match field_type {
-            FieldType::UnnamedUnion(union_path, _) if is_union_field => {
+            FieldType::UnnamedUnion(union_path) if is_union_field => {
                 return error(union_path.span(), "unions cannot contain unnamed unions")
             }
-            FieldType::GroupOrUnion(path, _) if is_optional => {
+            FieldType::GroupOrUnion(path) if is_optional => {
                 return error(path.span(), "Groups and unions cannot be optional")
             }
-            FieldType::UnnamedUnion(path, _) if is_optional => {
+            FieldType::UnnamedUnion(path) if is_optional => {
                 return error(path.span(), "Groups and unions cannot be optional")
             }
             _ => {}
@@ -155,7 +155,7 @@ impl FieldInfo {
             has_phantom_in_variant: false,
             is_union_field,
             is_optional,
-            is_boxed,
+            _is_boxed: is_boxed,
             skip_read,
             skip_write,
             default_override: attr_info.default,
@@ -177,7 +177,7 @@ impl FieldInfo {
                    Place them in the second slot.",
                 )
             }
-            FieldType::UnnamedUnion(_, _) => {
+            FieldType::UnnamedUnion(_) => {
                 return error(
                     variant_type.unwrap().span(),
                     "unions cannot contain unnamed unions.",
@@ -226,7 +226,7 @@ impl FieldInfo {
             has_phantom_in_variant: is_phantom,
             is_union_field: false,
             is_optional: false,
-            is_boxed,
+            _is_boxed: is_boxed,
             skip_read: false,
             skip_write: false,
             default_override: None,
@@ -254,7 +254,7 @@ impl FieldType {
     }
     fn parse_type(ty: &Type, specifier: FieldAttributeTypeSpecifier) -> Result<Self> {
         match ty {
-            Type::Tuple(tuple) if tuple.elems.is_empty() => Ok(FieldType::Void(tuple.clone())),
+            Type::Tuple(tuple) if tuple.elems.is_empty() => Ok(FieldType::Void()),
             Type::Path(path) => {
                 let path = &path.path;
                 let last_segment = path.segments.last().unwrap();
@@ -282,10 +282,10 @@ impl FieldType {
                             }
                             FieldAttributeTypeSpecifier::Enum => Ok(FieldType::Enum(path.clone())),
                             FieldAttributeTypeSpecifier::GroupOrUnion => {
-                                Ok(FieldType::GroupOrUnion(path.clone(), Vec::with_capacity(0)))
+                                Ok(FieldType::GroupOrUnion(path.clone()))
                             }
                             FieldAttributeTypeSpecifier::UnnamedUnion => {
-                                Ok(FieldType::UnnamedUnion(path.clone(), Vec::with_capacity(0)))
+                                Ok(FieldType::UnnamedUnion(path.clone()))
                             }
                             FieldAttributeTypeSpecifier::Data => error(
                                 ident.span(),
@@ -306,34 +306,21 @@ impl FieldType {
                                 _ => error(args.span(), "`Vec` fields must have only one argument"),
                             }
                         }
-                        PathArguments::AngleBracketed(args) => {
-                            let generics = args
-                                .args
-                                .iter()
-                                .map(|arg| match arg {
-                                    GenericArgument::Type(ty) => {
-                                        FieldType::parse_type(ty, specifier)
-                                    }
-                                    _ => error(arg.span(), "invalid generic argument type"),
-                                })
-                                .collect::<Result<Vec<FieldType>>>()?;
-
-                            match specifier {
-                                FieldAttributeTypeSpecifier::Default => {
-                                    Ok(FieldType::GenericStruct(path.clone(), generics))
-                                }
-                                FieldAttributeTypeSpecifier::GroupOrUnion => {
-                                    Ok(FieldType::GroupOrUnion(path.clone(), generics))
-                                }
-                                FieldAttributeTypeSpecifier::UnnamedUnion => {
-                                    Ok(FieldType::UnnamedUnion(path.clone(), generics))
-                                }
-                                _ => error(
-                                    args.span(),
-                                    "generic arguments can not be specified in unions",
-                                ),
+                        PathArguments::AngleBracketed(args) => match specifier {
+                            FieldAttributeTypeSpecifier::Default => {
+                                Ok(FieldType::GenericStruct(path.clone()))
                             }
-                        }
+                            FieldAttributeTypeSpecifier::GroupOrUnion => {
+                                Ok(FieldType::GroupOrUnion(path.clone()))
+                            }
+                            FieldAttributeTypeSpecifier::UnnamedUnion => {
+                                Ok(FieldType::UnnamedUnion(path.clone()))
+                            }
+                            _ => error(
+                                args.span(),
+                                "generic arguments can not be specified in unions",
+                            ),
+                        },
                         PathArguments::Parenthesized(args) => {
                             error(args.span(), "invalid generic argument types")
                         }
@@ -366,6 +353,7 @@ struct FieldAttributesInfo {
 }
 
 impl FieldAttributesInfo {
+    #[allow(clippy::too_many_lines)]
     pub fn new(attributes: &[Attribute]) -> Result<Self> {
         let mut attr_info = Self {
             name_override: None,
@@ -388,34 +376,34 @@ impl FieldAttributesInfo {
                     let name = meta.value()?.parse::<LitStr>()?.parse::<Ident>()?;
 
                     attr_info.name_override = Some(name.clone());
-                    FieldAttribute::Name(meta.path.clone(), name)
+                    FieldAttribute::Name(meta.path.clone())
                 } else if meta.path.is_ident("type") {
                     let lit_str = meta.value()?.parse::<LitStr>()?.value();
 
                     match lit_str.as_str() {
             "enum" => {
               attr_info.type_specifier = FieldAttributeTypeSpecifier::Enum;
-              FieldAttribute::Type(meta.path.clone(), FieldAttributeTypeSpecifier::Enum)
+              FieldAttribute::Type(meta.path.clone())
             }
             "enum_remote" => {
               attr_info.type_specifier = FieldAttributeTypeSpecifier::EnumRemote;
-              FieldAttribute::Type(meta.path.clone(), FieldAttributeTypeSpecifier::EnumRemote)
+              FieldAttribute::Type(meta.path.clone())
             }
             "group" => {
               attr_info.type_specifier = FieldAttributeTypeSpecifier::GroupOrUnion;
-              FieldAttribute::Type(meta.path.clone(), FieldAttributeTypeSpecifier::GroupOrUnion)
+              FieldAttribute::Type(meta.path.clone())
             }
             "union" => {
               attr_info.type_specifier = FieldAttributeTypeSpecifier::GroupOrUnion;
-              FieldAttribute::Type(meta.path.clone(), FieldAttributeTypeSpecifier::GroupOrUnion)
+              FieldAttribute::Type(meta.path.clone())
             }
             "unnamed_union" => {
               attr_info.type_specifier = FieldAttributeTypeSpecifier::UnnamedUnion;
-              FieldAttribute::Type(meta.path.clone(), FieldAttributeTypeSpecifier::UnnamedUnion)
+              FieldAttribute::Type(meta.path.clone())
             }
             "data" => {
               attr_info.type_specifier = FieldAttributeTypeSpecifier::Data;
-              FieldAttribute::Type(meta.path.clone(), FieldAttributeTypeSpecifier::Data)
+              FieldAttribute::Type(meta.path.clone())
             }
             _ => {
               return Err(meta.error(
@@ -428,7 +416,7 @@ impl FieldAttributesInfo {
 
                     if path == as_turbofish(&path) {
                         attr_info.default = Some(path.clone());
-                        FieldAttribute::Default(meta.path.clone(), path)
+                        FieldAttribute::Default(meta.path.clone())
                     } else {
                         return Err(meta.error("not in turbofish format"));
                     }
@@ -466,7 +454,7 @@ impl FieldAttributesInfo {
         // Validate
         for attr in processed_attrs.values() {
             match attr {
-                FieldAttribute::Default(ident, _)
+                FieldAttribute::Default(ident)
                     if !processed_attrs.values().any(|a| {
                         matches!(a, FieldAttribute::Skip(_) | FieldAttribute::SkipRead(_))
                     }) =>
@@ -499,9 +487,9 @@ impl FieldAttributesInfo {
 
 #[derive(Debug, Clone)]
 enum FieldAttribute {
-    Name(Path, Ident),
-    Type(Path, FieldAttributeTypeSpecifier),
-    Default(Path, Path),
+    Name(Path),
+    Type(Path),
+    Default(Path),
     Skip(Path),
     SkipRead(Path),
     SkipWrite(Path),
@@ -511,9 +499,9 @@ enum FieldAttribute {
 impl ToTokens for FieldAttribute {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
-            FieldAttribute::Name(a, _) => tokens.extend(a.into_token_stream()),
-            FieldAttribute::Type(a, _) => tokens.extend(a.into_token_stream()),
-            FieldAttribute::Default(a, _) => tokens.extend(a.into_token_stream()),
+            FieldAttribute::Name(a) => tokens.extend(a.into_token_stream()),
+            FieldAttribute::Type(a) => tokens.extend(a.into_token_stream()),
+            FieldAttribute::Default(a) => tokens.extend(a.into_token_stream()),
             FieldAttribute::Skip(a) => tokens.extend(a.into_token_stream()),
             FieldAttribute::SkipRead(a) => tokens.extend(a.into_token_stream()),
             FieldAttribute::SkipWrite(a) => tokens.extend(a.into_token_stream()),

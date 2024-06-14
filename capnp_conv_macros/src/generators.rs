@@ -278,17 +278,17 @@ impl FieldInfo {
 
     fn generate_default_reader(&self) -> TokenStream2 {
         let path = match &self.field_type {
-            FieldType::Void(_) => return quote!(()),
+            FieldType::Void() => return quote!(()),
             FieldType::Primitive(path) => path,
             FieldType::Data(path) => path,
             FieldType::Text(path) => path,
             FieldType::Struct(path) => path,
             FieldType::EnumRemote(path) => path,
             FieldType::Enum(path) => path,
-            FieldType::GroupOrUnion(path, _) => path,
-            FieldType::UnnamedUnion(path, _) => path,
+            FieldType::GroupOrUnion(path) => path,
+            FieldType::UnnamedUnion(path) => path,
             FieldType::List(_) => return quote!(Vec::default()),
-            FieldType::GenericStruct(path, _) => path,
+            FieldType::GenericStruct(path) => path,
             _ => unimplemented!(),
         };
         let path = as_turbofish(path);
@@ -368,7 +368,7 @@ impl FieldType {
         match self {
             FieldType::Phantom => unimplemented!(),
             FieldType::EnumVariant => unimplemented!(),
-            FieldType::Void(_) => quote!(()),
+            FieldType::Void() => quote!(()),
             FieldType::Primitive(_) => quote!(#getter),
             FieldType::Data(_) => quote!(#getter?.to_owned()),
             FieldType::Text(_) => quote!(#getter?.to_string()?),
@@ -378,11 +378,11 @@ impl FieldType {
             }
             FieldType::EnumRemote(_) => quote!(#getter?.into()),
             FieldType::Enum(_) => quote!(#getter?),
-            FieldType::GroupOrUnion(path, _) => {
+            FieldType::GroupOrUnion(path) => {
                 let path = as_turbofish(path);
                 quote!(#path::read(#getter)?)
             }
-            FieldType::UnnamedUnion(union_path, _) => {
+            FieldType::UnnamedUnion(union_path) => {
                 let union_path = as_turbofish(union_path);
                 quote!(#union_path::read(#reader_name)?)
             }
@@ -400,7 +400,7 @@ impl FieldType {
                   }
                 }
             }
-            FieldType::GenericStruct(struct_path, _) => {
+            FieldType::GenericStruct(struct_path) => {
                 let struct_path = as_turbofish(struct_path);
                 quote!(#struct_path::read(#getter?)?)
             }
@@ -409,7 +409,7 @@ impl FieldType {
 
     fn generate_struct_field_reader_list_item(&self) -> TokenStream2 {
         match self {
-            FieldType::Void(_) => quote!(()),
+            FieldType::Void() => quote!(()),
             FieldType::Primitive(_) => quote!(reader.get(idx)),
             FieldType::Data(_) => quote!(reader.get(idx)?.to_owned()),
             FieldType::Text(_) => quote!(reader.get(idx)?.to_string()?),
@@ -433,7 +433,7 @@ impl FieldType {
                   }
                 }
             }
-            FieldType::GenericStruct(struct_path, _) => {
+            FieldType::GenericStruct(struct_path) => {
                 let struct_path = as_turbofish(struct_path);
                 quote!(#struct_path::read(reader.get(idx))?)
             }
@@ -456,7 +456,7 @@ impl FieldType {
         match self {
             FieldType::Phantom => unimplemented!(),
             FieldType::EnumVariant => unimplemented!(),
-            FieldType::Void(_) => quote!(builder.#setter(())),
+            FieldType::Void() => quote!(builder.#setter(())),
             FieldType::Primitive(_) => quote!(builder.#setter(#deref_field)),
             FieldType::Data(_) => quote!(builder.#setter(#ref_field)),
             FieldType::Text(_) => quote!(builder.#setter(#field.as_str())),
@@ -465,10 +465,10 @@ impl FieldType {
                 quote!(builder.#setter(::capnp_conv::RemoteEnum::to_capnp_enum(#ref_field)))
             }
             FieldType::Enum(_) => quote!(builder.#setter(#deref_field)),
-            FieldType::GroupOrUnion(_, _) => {
+            FieldType::GroupOrUnion(_) => {
                 quote!(#field.write(builder.reborrow().#initializer()))
             }
-            FieldType::UnnamedUnion(_, _) => quote!(#field.write(builder.reborrow())),
+            FieldType::UnnamedUnion(_) => quote!(#field.write(builder.reborrow())),
             FieldType::List(item_type) => {
                 let field_setter = item_type.generate_struct_field_writer_list_item();
                 quote! {
@@ -482,14 +482,14 @@ impl FieldType {
                   }
                 }
             }
-            FieldType::GenericStruct(_, _) => {
+            FieldType::GenericStruct(_) => {
                 quote!(#field.write(builder.reborrow().#initializer()))
             }
         }
     }
     fn generate_struct_field_writer_list_item(&self) -> TokenStream2 {
         match self {
-            FieldType::Void(_) => quote!(builder.set(idx as u32, ())),
+            FieldType::Void() => quote!(builder.set(idx as u32, ())),
             FieldType::Primitive(_) => quote!(builder.set(idx as u32, *item)),
             FieldType::Data(_) => quote!(builder.set(idx as u32, item)),
             FieldType::Text(_) => quote!(builder.set(idx as u32, item)),
@@ -509,7 +509,7 @@ impl FieldType {
                   }
                 }
             }
-            FieldType::GenericStruct(_, _) => {
+            FieldType::GenericStruct(_) => {
                 quote!(item.write(builder.reborrow().get(idx as u32)))
             }
             _ => unimplemented!(),
