@@ -8,7 +8,7 @@ version = "0.3.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/aikalant/capnp_conv"
-
+readme = "README.md"
 
 [workspace.dependencies]
 capnp_conv = { path = "capnp_conv", version = "0.3.0" }
