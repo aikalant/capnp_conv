@@ -69,12 +69,7 @@ impl StructInfo {
         let (non_union_field_names, non_union_readers): (Vec<&Ident>, Vec<TokenStream2>) =
             non_union_fields
                 .iter()
-                .map(|field| {
-                    (
-                        &field.rust_name,
-                        field.generate_field_reader(false, !self.generics.is_empty()),
-                    )
-                })
+                .map(|field| (&field.rust_name, field.generate_field_reader(false)))
                 .unzip();
 
         let match_arms: Vec<TokenStream2> = union_fields
@@ -87,8 +82,7 @@ impl StructInfo {
                     .map(|union_field| {
                         let field_name = &union_field.rust_name;
                         if &field.rust_name == field_name {
-                            let field_reader =
-                                union_field.generate_field_reader(true, !self.generics.is_empty());
+                            let field_reader = union_field.generate_field_reader(true);
                             quote!(#field_name: Some(#field_reader))
                         } else {
                             quote!(#field_name: None)
@@ -208,7 +202,7 @@ impl EnumInfo {
         let rust_variant_name = &field.rust_name;
         let capnp_field_name = field.get_capnp_name(ToSnakeCase::to_snake_case);
         let capnp_variant_name = to_ident(capnp_field_name.to_upper_camel_case());
-        let field_reader = field.generate_field_reader(true, !self.generics.is_empty());
+        let field_reader = field.generate_field_reader(true);
         let variant_fields = if field.has_phantom_in_variant {
           quote!(#field_reader, ::std::marker::PhantomData)
         } else {
@@ -240,7 +234,7 @@ impl EnumInfo {
 }
 
 impl FieldInfo {
-    fn generate_field_reader(&self, pre_fetched: bool, reborrow_readers: bool) -> TokenStream2 {
+    fn generate_field_reader(&self, pre_fetched: bool) -> TokenStream2 {
         if matches!(self.field_type, FieldType::Phantom) {
             quote!(::std::marker::PhantomData)
         } else if self.skip_read {
@@ -256,12 +250,9 @@ impl FieldInfo {
         } else {
             let capnp_field_name = self.get_capnp_name(ToSnakeCase::to_snake_case);
             if self.is_optional {
-                let field_reader = self.field_type.generate_field_reader(
-                    quote!(reader),
-                    &capnp_field_name,
-                    false,
-                    reborrow_readers,
-                );
+                let field_reader =
+                    self.field_type
+                        .generate_field_reader(quote!(reader), &capnp_field_name, false);
                 if is_ptr_type(&self.field_type) {
                     let checker = format_ident!("has_{}", capnp_field_name);
                     quote! {
@@ -279,12 +270,8 @@ impl FieldInfo {
                 } else {
                     quote!(reader)
                 };
-                self.field_type.generate_field_reader(
-                    reader_name,
-                    &capnp_field_name,
-                    pre_fetched,
-                    reborrow_readers,
-                )
+                self.field_type
+                    .generate_field_reader(reader_name, &capnp_field_name, pre_fetched)
             }
         }
     }
@@ -371,18 +358,12 @@ impl FieldType {
         reader_name: impl ToTokens,
         capnp_field_name: &str,
         reader_pre_fetched: bool,
-        reborrow_readers: bool,
     ) -> TokenStream2 {
         let getter = format_ident!("get_{}", capnp_field_name);
-        let reader = if reborrow_readers {
-            quote!(#reader_name.reborrow())
-        } else {
-            quote!(#reader_name)
-        };
         let getter = if reader_pre_fetched {
             quote!(#reader_name)
         } else {
-            quote!(#reader.#getter())
+            quote!(#reader_name.#getter())
         };
         match self {
             FieldType::Phantom => unimplemented!(),
@@ -403,7 +384,7 @@ impl FieldType {
             }
             FieldType::UnnamedUnion(union_path, _) => {
                 let union_path = as_turbofish(union_path);
-                quote!(#union_path::read(#reader)?)
+                quote!(#union_path::read(#reader_name)?)
             }
             FieldType::List(item_type) => {
                 let item_getter = item_type.generate_struct_field_reader_list_item();
