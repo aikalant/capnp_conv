@@ -16,7 +16,7 @@ capnp_conv_macros = { path = "capnp_conv_macros", version = "0.3.0" }
 
 capnp = "0.19"
 capnpc = "0.19"
-heck = "0.4"
+heck = "0.5"
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = "2.0"
