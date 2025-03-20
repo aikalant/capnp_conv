@@ -11,3 +11,7 @@ readme.workspace = true
 capnp_conv_macros.workspace = true
 
 capnp.workspace = true
+
+[features]
+default = ["std"]
+std = ["capnp/default"]

@@ -1,5 +1,8 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
 use capnp::{traits::Owned, Result};
 pub use capnp_conv_macros::capnp_conv;
+use core::marker::Sized;
 
 pub trait Writable {
     type OwnedType: Owned;
