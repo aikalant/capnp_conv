@@ -571,7 +571,7 @@ fn generate_try_from_impl(
     let capnp_generics: Vec<Ident> = generics.iter().map(to_capnp_generic).collect();
     quote! {
       impl<'a, #(#generics, #capnp_generics),*>
-      ::std::convert::TryFrom<#capnp_path::Reader<'a, #(#capnp_generics),*>>
+      ::core::convert::TryFrom<#capnp_path::Reader<'a, #(#capnp_generics),*>>
       for #rust_name<#(#generics),*>
       where
         #(#generics: ::capnp_conv::Readable<OwnedType = #capnp_generics>,)*
