@@ -1,6 +1,6 @@
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 use syn::{Ident, Path};
 
 use crate::{
@@ -11,17 +11,17 @@ use crate::{
 impl ItemInfo {
     pub fn generate_impls(&self, capnp_path: &Path) -> TokenStream2 {
         let impls = match self {
-            ItemInfo::Struct(struct_info) => vec![
+            Self::Struct(struct_info) => vec![
                 struct_info.generate_writer_impl(capnp_path),
                 struct_info.generate_reader_impl(capnp_path),
                 struct_info.generate_try_from_impl(capnp_path),
             ],
-            ItemInfo::Enum(enum_info) if enum_info.is_union() => vec![
+            Self::Enum(enum_info) if enum_info.is_union() => vec![
                 enum_info.generate_writer_impl(capnp_path),
                 enum_info.generate_reader_impl(capnp_path),
                 enum_info.generate_try_from_impl(capnp_path),
             ],
-            ItemInfo::Enum(enum_info) => vec![
+            Self::Enum(enum_info) => vec![
                 enum_info.generate_into_impl(capnp_path),
                 enum_info.generate_from_impl(capnp_path),
                 enum_info.generate_to_impl(capnp_path),
@@ -238,10 +238,10 @@ impl FieldInfo {
         if matches!(self.field_type, FieldType::Phantom) {
             quote!(::std::marker::PhantomData)
         } else if self.skip_read {
-            let field_reader = match &self.default_override {
-                Some(default_override) => quote!(#default_override()),
-                None => self.generate_default_reader(),
-            };
+            let field_reader = self.default_override.as_ref().map_or_else(
+                || self.generate_default_reader(),
+                |default_override| quote!(#default_override()),
+            );
             if self.is_optional {
                 quote!(Some(#field_reader))
             } else {
@@ -279,16 +279,16 @@ impl FieldInfo {
     fn generate_default_reader(&self) -> TokenStream2 {
         let path = match &self.field_type {
             FieldType::Void() => return quote!(()),
-            FieldType::Primitive(path) => path,
-            FieldType::Data(path) => path,
-            FieldType::Text(path) => path,
-            FieldType::Struct(path) => path,
-            FieldType::EnumRemote(path) => path,
-            FieldType::Enum(path) => path,
-            FieldType::GroupOrUnion(path) => path,
-            FieldType::UnnamedUnion(path) => path,
+            FieldType::Primitive(path)
+            | FieldType::Data(path)
+            | FieldType::Text(path)
+            | FieldType::Struct(path)
+            | FieldType::EnumRemote(path)
+            | FieldType::Enum(path)
+            | FieldType::GroupOrUnion(path)
+            | FieldType::UnnamedUnion(path)
+            | FieldType::GenericStruct(path) => path,
             FieldType::List(_) => return quote!(Vec::default()),
-            FieldType::GenericStruct(path) => path,
             _ => unimplemented!(),
         };
         let path = as_turbofish(path);
@@ -366,27 +366,27 @@ impl FieldType {
             quote!(#reader_name.#getter())
         };
         match self {
-            FieldType::Phantom => unimplemented!(),
-            FieldType::EnumVariant => unimplemented!(),
-            FieldType::Void() => quote!(()),
-            FieldType::Primitive(_) => quote!(#getter),
-            FieldType::Data(_) => quote!(#getter?.to_owned()),
-            FieldType::Text(_) => quote!(#getter?.to_string()?),
-            FieldType::Struct(struct_path) => {
+            Self::Phantom => unimplemented!(),
+            Self::EnumVariant => unimplemented!(),
+            Self::Void() => quote!(()),
+            Self::Primitive(_) => quote!(#getter),
+            Self::Data(_) => quote!(#getter?.to_owned()),
+            Self::Text(_) => quote!(#getter?.to_string()?),
+            Self::Struct(struct_path) | Self::GenericStruct(struct_path) => {
                 let struct_path = as_turbofish(struct_path);
                 quote!(#struct_path::read(#getter?)?)
             }
-            FieldType::EnumRemote(_) => quote!(#getter?.into()),
-            FieldType::Enum(_) => quote!(#getter?),
-            FieldType::GroupOrUnion(path) => {
+            Self::EnumRemote(_) => quote!(#getter?.into()),
+            Self::Enum(_) => quote!(#getter?),
+            Self::GroupOrUnion(path) => {
                 let path = as_turbofish(path);
                 quote!(#path::read(#getter)?)
             }
-            FieldType::UnnamedUnion(union_path) => {
+            Self::UnnamedUnion(union_path) => {
                 let union_path = as_turbofish(union_path);
                 quote!(#union_path::read(#reader_name)?)
             }
-            FieldType::List(item_type) => {
+            Self::List(item_type) => {
                 let item_getter = item_type.generate_struct_field_reader_list_item();
                 quote! {
                   {
@@ -400,26 +400,22 @@ impl FieldType {
                   }
                 }
             }
-            FieldType::GenericStruct(struct_path) => {
-                let struct_path = as_turbofish(struct_path);
-                quote!(#struct_path::read(#getter?)?)
-            }
         }
     }
 
     fn generate_struct_field_reader_list_item(&self) -> TokenStream2 {
         match self {
-            FieldType::Void() => quote!(()),
-            FieldType::Primitive(_) => quote!(reader.get(idx)),
-            FieldType::Data(_) => quote!(reader.get(idx)?.to_owned()),
-            FieldType::Text(_) => quote!(reader.get(idx)?.to_string()?),
-            FieldType::Struct(struct_path) => {
-                let struct_path = as_turbofish(struct_path);
+            Self::Void() => quote!(()),
+            Self::Primitive(_) => quote!(reader.get(idx)),
+            Self::Data(_) => quote!(reader.get(idx)?.to_owned()),
+            Self::Text(_) => quote!(reader.get(idx)?.to_string()?),
+            Self::Struct(struct_path) => {
+                let struct_path: Path = as_turbofish(struct_path);
                 quote!(#struct_path::read(reader.get(idx))?)
             }
-            FieldType::EnumRemote(_) => quote!(reader.get(idx)?.into()),
-            FieldType::Enum(_) => quote!(reader.get(idx)?),
-            FieldType::List(item_type) => {
+            Self::EnumRemote(_) => quote!(reader.get(idx)?.into()),
+            Self::Enum(_) => quote!(reader.get(idx)?),
+            Self::List(item_type) => {
                 let item_getter = item_type.generate_struct_field_reader_list_item();
                 quote! {
                   {
@@ -433,7 +429,7 @@ impl FieldType {
                   }
                 }
             }
-            FieldType::GenericStruct(struct_path) => {
+            Self::GenericStruct(struct_path) => {
                 let struct_path = as_turbofish(struct_path);
                 quote!(#struct_path::read(reader.get(idx))?)
             }
@@ -454,22 +450,21 @@ impl FieldType {
             (quote!(*#field), quote!(#field))
         };
         match self {
-            FieldType::Phantom => unimplemented!(),
-            FieldType::EnumVariant => unimplemented!(),
-            FieldType::Void() => quote!(builder.#setter(())),
-            FieldType::Primitive(_) => quote!(builder.#setter(#deref_field)),
-            FieldType::Data(_) => quote!(builder.#setter(#ref_field)),
-            FieldType::Text(_) => quote!(builder.#setter(#field.as_str())),
-            FieldType::Struct(_) => quote!(#field.write(builder.reborrow().#initializer())),
-            FieldType::EnumRemote(_) => {
+            Self::Phantom => unimplemented!(),
+            Self::EnumVariant => unimplemented!(),
+            Self::Void() => quote!(builder.#setter(())),
+            Self::Primitive(_) | Self::Enum(_) => quote!(builder.#setter(#deref_field)),
+            Self::Data(_) => quote!(builder.#setter(#ref_field)),
+            Self::Text(_) => quote!(builder.#setter(#field.as_str())),
+            Self::Struct(_) => quote!(#field.write(builder.reborrow().#initializer())),
+            Self::EnumRemote(_) => {
                 quote!(builder.#setter(::capnp_conv::RemoteEnum::to_capnp_enum(#ref_field)))
             }
-            FieldType::Enum(_) => quote!(builder.#setter(#deref_field)),
-            FieldType::GroupOrUnion(_) => {
+            Self::GroupOrUnion(_) | Self::GenericStruct(_) => {
                 quote!(#field.write(builder.reborrow().#initializer()))
             }
-            FieldType::UnnamedUnion(_) => quote!(#field.write(builder.reborrow())),
-            FieldType::List(item_type) => {
+            Self::UnnamedUnion(_) => quote!(#field.write(builder.reborrow())),
+            Self::List(item_type) => {
                 let field_setter = item_type.generate_struct_field_writer_list_item();
                 quote! {
                   {
@@ -482,23 +477,18 @@ impl FieldType {
                   }
                 }
             }
-            FieldType::GenericStruct(_) => {
-                quote!(#field.write(builder.reborrow().#initializer()))
-            }
         }
     }
     fn generate_struct_field_writer_list_item(&self) -> TokenStream2 {
         match self {
-            FieldType::Void() => quote!(builder.set(idx as u32, ())),
-            FieldType::Primitive(_) => quote!(builder.set(idx as u32, *item)),
-            FieldType::Data(_) => quote!(builder.set(idx as u32, item)),
-            FieldType::Text(_) => quote!(builder.set(idx as u32, item)),
-            FieldType::Struct(_) => quote!(item.write(builder.reborrow().get(idx as u32))),
-            FieldType::EnumRemote(_) => {
+            Self::Void() => quote!(builder.set(idx as u32, ())),
+            Self::Primitive(_) | Self::Enum(_) => quote!(builder.set(idx as u32, *item)),
+            Self::Data(_) | Self::Text(_) => quote!(builder.set(idx as u32, item)),
+            Self::Struct(_) => quote!(item.write(builder.reborrow().get(idx as u32))),
+            Self::EnumRemote(_) => {
                 quote!(builder.set(idx as u32, ::capnp_conv::RemoteEnum::to_capnp_enum(item)))
             }
-            FieldType::Enum(_) => quote!(builder.set(idx as u32, *item)),
-            FieldType::List(item_type) => {
+            Self::List(item_type) => {
                 let field_setter = item_type.generate_struct_field_writer_list_item();
                 quote! {
                   let list = item;
@@ -509,7 +499,7 @@ impl FieldType {
                   }
                 }
             }
-            FieldType::GenericStruct(_) => {
+            Self::GenericStruct(_) => {
                 quote!(item.write(builder.reborrow().get(idx as u32)))
             }
             _ => unimplemented!(),

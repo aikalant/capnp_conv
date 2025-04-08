@@ -1,7 +1,7 @@
 imports_granularity = "Crate"
 group_imports = "StdExternalCrate"
 newline_style = "Unix"
-edition = "2021"
+edition = "2024"
 tab_spaces = 4
 use_try_shorthand = true
 use_field_init_shorthand = true

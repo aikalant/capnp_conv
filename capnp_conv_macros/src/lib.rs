@@ -1,3 +1,13 @@
+#![deny(
+    clippy::nursery,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::string_slice,
+    clippy::pedantic
+)]
+#![forbid(unsafe_code)]
+
 mod generators;
 mod models;
 mod parsers;
@@ -14,44 +24,33 @@ pub fn capnp_conv(attr_stream: TokenStream, input_stream: TokenStream) -> TokenS
     let capnp_struct = parse_macro_input!(attr_stream as Path);
     let mut input = parse_macro_input!(input_stream as DeriveInput);
 
-    match ItemInfo::parse_input(&input) {
+    let output = match ItemInfo::parse_input(&input) {
         Ok(item_info) => {
-            let output = item_info.generate_impls(&capnp_struct);
+            let impls = item_info.generate_impls(&capnp_struct);
             remove_capnp_field_attrs(&mut input);
             quote! {
-              #input
-              #output
+                #input
+                #impls
             }
         }
         Err(error) => error.to_compile_error(),
-    }
-    .into()
+    };
+
+    output.into()
 }
 
 fn remove_capnp_field_attrs(input: &mut DeriveInput) {
     match &mut input.data {
         syn::Data::Struct(data) => {
             for field in &mut data.fields {
-                drain_filter(&mut field.attrs, is_capnp_attr);
+                field.attrs.retain(|attr| !is_capnp_attr(attr));
             }
         }
         syn::Data::Enum(data) => {
             for variant in &mut data.variants {
-                drain_filter(&mut variant.attrs, is_capnp_attr);
+                variant.attrs.retain(|attr| !is_capnp_attr(attr));
             }
         }
         syn::Data::Union(_) => unimplemented!(),
-    }
-}
-
-//not using nightly so we need to do this manually
-fn drain_filter<T>(vec: &mut Vec<T>, predicate: fn(&T) -> bool) {
-    let mut i = 0;
-    while i != vec.len() {
-        if predicate(&vec[i]) {
-            vec.remove(i);
-        } else {
-            i += 1;
-        }
     }
 }
