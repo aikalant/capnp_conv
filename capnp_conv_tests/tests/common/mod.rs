@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 use common_rust::{
     BasicStruct, ComprehensiveStruct, ComprehensiveStructEnum, ComprehensiveStructGroup,
     ComprehensiveStructUnion, ComprehensiveStructUnnamedUnion, ComprehensiveUnion, GenericStruct,
+    NestedStruct,
 };
 
 use crate::assert_identical;
@@ -49,7 +50,11 @@ pub fn check() {
         comprehensive_union: ComprehensiveUnion::TextVal("hi".to_owned()),
         generic_val: GenericStruct {
             a_val: basic_struct.clone(),
-            b_val: basic_struct,
+            b_val: basic_struct.clone(),
+        },
+        nested_struct_val: NestedStruct {
+            t_val: basic_struct.clone(),
+            y_val: basic_struct.clone(),
         },
     };
 

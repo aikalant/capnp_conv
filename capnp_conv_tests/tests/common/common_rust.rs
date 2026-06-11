@@ -40,6 +40,7 @@ pub struct ComprehensiveStruct<T, Y> {
     #[capnp_conv(type = "union")]
     pub comprehensive_union: ComprehensiveUnion<T, Y>,
     pub generic_val: GenericStruct<BasicStruct, BasicStruct>,
+    pub nested_struct_val: NestedStruct<T, Y>,
 }
 
 #[capnp_conv(basic_struct)]

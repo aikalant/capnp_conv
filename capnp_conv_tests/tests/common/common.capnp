@@ -77,4 +77,5 @@ struct ComprehensiveStruct(T,Y) {
     genericVal @43 :GenericStruct(BasicStruct,BasicStruct);
   }
   genericVal @44 :GenericStruct(BasicStruct,BasicStruct);
+  nestedStructVal @45 :NestedStruct;
 }
