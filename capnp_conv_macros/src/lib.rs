@@ -3,20 +3,20 @@ mod models;
 mod parsers;
 mod utils;
 
-use models::ItemInfo;
+use models::{ConvArgs, ItemInfo};
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Path};
+use syn::{parse_macro_input, DeriveInput};
 use utils::is_capnp_attr;
 
 #[proc_macro_attribute]
 pub fn capnp_conv(attr_stream: TokenStream, input_stream: TokenStream) -> TokenStream {
-    let capnp_struct = parse_macro_input!(attr_stream as Path);
+    let args = parse_macro_input!(attr_stream as ConvArgs);
     let mut input = parse_macro_input!(input_stream as DeriveInput);
 
-    match ItemInfo::parse_input(&input) {
+    match ItemInfo::parse_input(&args, &input) {
         Ok(item_info) => {
-            let output = item_info.generate_impls(&capnp_struct);
+            let output = item_info.generate_impls(&args.capnp_path);
             remove_capnp_field_attrs(&mut input);
             quote! {
               #input

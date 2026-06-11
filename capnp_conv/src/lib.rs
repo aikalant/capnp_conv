@@ -18,4 +18,7 @@ where
 
 pub trait RemoteEnum<T> {
     fn to_capnp_enum(&self) -> T;
+    fn try_from_capnp_enum(other: &T) -> Result<Self>
+    where
+        Self: Sized;
 }

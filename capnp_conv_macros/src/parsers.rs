@@ -6,24 +6,56 @@ use std::{
 use proc_macro2::{Ident, TokenStream};
 use quote::ToTokens;
 use syn::{
-    spanned::Spanned, Attribute, Data, DataEnum, DataStruct, DeriveInput, Field, Fields,
-    GenericArgument, GenericParam, Generics, LitStr, Path, PathArguments, Result, Type, Variant,
+    parse::{Parse, ParseStream},
+    spanned::Spanned,
+    token::Comma,
+    Attribute, Data, DataEnum, DataStruct, DeriveInput, Field, Fields, GenericArgument,
+    GenericParam, Generics, LitStr, Path, PathArguments, Result, Type, Variant,
 };
 
 use crate::{
-    models::{EnumInfo, FieldInfo, FieldType, FieldWrapper, ItemInfo, StructInfo},
+    models::{ConvArgs, EnumInfo, FieldInfo, FieldType, FieldWrapper, ItemInfo, StructInfo},
     utils::{as_turbofish, error, is_capnp_attr, try_peel_type},
 };
 
+impl Parse for ConvArgs {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let capnp_path: Path = input.parse()?;
+        let mut non_exhaustive = false;
+
+        if input.peek(Comma) {
+            let _ = input.parse::<Comma>()?;
+            let flag: Ident = input.parse()?;
+            if flag == "non_exhaustive" {
+                non_exhaustive = true;
+            } else {
+                return Err(syn::Error::new(flag.span(), "expected `non_exhaustive`"));
+            }
+        }
+
+        if !input.is_empty() {
+            return Err(input.error("unexpected extra tokens"));
+        }
+
+        Ok(Self {
+            capnp_path,
+            non_exhaustive,
+            span: input.span(),
+        })
+    }
+}
+
 impl ItemInfo {
-    pub fn parse_input(input: &DeriveInput) -> Result<Self> {
+    pub fn parse_input(args: &ConvArgs, input: &DeriveInput) -> Result<Self> {
         match &input.data {
             Data::Struct(struct_data) => Ok(ItemInfo::Struct(StructInfo::parse_struct(
+                args,
                 &input.ident,
                 &input.generics,
                 struct_data,
             )?)),
             Data::Enum(enum_data) => Ok(ItemInfo::Enum(EnumInfo::parse_enum(
+                args,
                 &input.ident,
                 &input.generics,
                 enum_data,
@@ -37,13 +69,26 @@ impl ItemInfo {
 }
 
 impl StructInfo {
-    fn parse_struct(ident: &Ident, generics: &Generics, data: &DataStruct) -> Result<Self> {
+    fn parse_struct(
+        args: &ConvArgs,
+        ident: &Ident,
+        generics: &Generics,
+        data: &DataStruct,
+    ) -> Result<Self> {
         let ident = ident.clone();
+
         let fields = data
             .fields
             .iter()
             .map(FieldInfo::parse_field)
             .collect::<Result<Vec<FieldInfo>>>()?;
+
+        if args.non_exhaustive && !fields.iter().any(|f| f.is_union_field) {
+            return error(
+                args.span,
+                "Only union structs are allowed to be \"non_exhaustive\"",
+            );
+        }
 
         let generics = generics
             .params
@@ -58,13 +103,20 @@ impl StructInfo {
             ident,
             fields,
             generics,
+            non_exhaustive: args.non_exhaustive,
         })
     }
 }
 
 impl EnumInfo {
-    fn parse_enum(ident: &Ident, generics: &Generics, data: &DataEnum) -> Result<Self> {
+    fn parse_enum(
+        args: &ConvArgs,
+        ident: &Ident,
+        generics: &Generics,
+        data: &DataEnum,
+    ) -> Result<Self> {
         let ident = ident.clone();
+
         let fields = data
             .variants
             .iter()
@@ -84,6 +136,7 @@ impl EnumInfo {
             ident,
             fields,
             generics,
+            non_exhaustive: args.non_exhaustive,
         })
     }
 }
@@ -100,6 +153,8 @@ impl FieldInfo {
                 || attr_info.union_field
                 || attr_info.default.is_some()
                 || attr_info.name_override.is_some()
+                || attr_info.read_override.is_some()
+                || attr_info.write_override.is_some()
                 || !matches!(
                     attr_info.type_specifier,
                     FieldAttributeTypeSpecifier::Default
@@ -114,10 +169,10 @@ impl FieldInfo {
 
         let (is_union_field, is_optional, is_boxed) = match field_wrapper {
             FieldWrapper::Box(box_ident) if attr_info.union_field => {
-                return error(box_ident.span(), "`Box<T>` types cannot be `union_field`s")
+                return error(box_ident.span(), "`Box<T>` types cannot be `union_field`s");
             }
             FieldWrapper::None if attr_info.union_field => {
-                return error(field.ty.span(), "`union_field`s must be `Option<T>`")
+                return error(field.ty.span(), "`union_field`s must be `Option<T>`");
             }
             FieldWrapper::Option(_) if attr_info.union_field => (true, false, false),
             FieldWrapper::Option(_) => (false, true, false),
@@ -131,15 +186,36 @@ impl FieldInfo {
             (attr_info.skip_read, attr_info.skip_write)
         };
 
+        if skip_read && attr_info.read_override.is_some() {
+            return error(
+                field.ty.span(),
+                "`read_with` attribute cannot be used with `skip` or `skip_read`",
+            );
+        }
+
+        if attr_info.default.is_some() && attr_info.read_override.is_some() {
+            return error(
+                field.ty.span(),
+                "`default` attribute cannot be used with `read_with`",
+            );
+        }
+
+        if skip_write && attr_info.write_override.is_some() {
+            return error(
+                field.ty.span(),
+                "`write_with` attribute cannot be used with `skip` or `skip_write`",
+            );
+        }
+
         match field_type {
             FieldType::UnnamedUnion(union_path) if is_union_field => {
-                return error(union_path.span(), "unions cannot contain unnamed unions")
+                return error(union_path.span(), "unions cannot contain unnamed unions");
             }
             FieldType::GroupOrUnion(path) if is_optional => {
-                return error(path.span(), "Groups and unions cannot be optional")
+                return error(path.span(), "Groups and unions cannot be optional");
             }
             FieldType::UnnamedUnion(path) if is_optional => {
-                return error(path.span(), "Groups and unions cannot be optional")
+                return error(path.span(), "Groups and unions cannot be optional");
             }
             _ => {}
         }
@@ -155,10 +231,11 @@ impl FieldInfo {
             has_phantom_in_variant: false,
             is_union_field,
             is_optional,
-            _is_boxed: is_boxed,
             skip_read,
             skip_write,
             default_override: attr_info.default,
+            read_override: attr_info.read_override,
+            write_override: attr_info.write_override,
         })
     }
     fn parse_variant(variant: &Variant) -> Result<Self> {
@@ -175,16 +252,16 @@ impl FieldInfo {
                     variant_type.unwrap().span(),
                     "Enums may not have `PhantomData` in the first spot in their variants. \
                    Place them in the second slot.",
-                )
+                );
             }
             FieldType::UnnamedUnion(_) => {
                 return error(
                     variant_type.unwrap().span(),
                     "unions cannot contain unnamed unions.",
-                )
+                );
             }
             _ => {}
-        };
+        }
 
         if let FieldWrapper::Option(ident) = field_wrapper {
             return error(ident.span(), "Enums may not have `Option<T>`");
@@ -194,11 +271,13 @@ impl FieldInfo {
             || attr_info.skip_write
             || attr_info.default.is_some()
             || attr_info.union_field
+            || attr_info.read_override.is_some()
+            || attr_info.write_override.is_some()
         {
             return error(
-                variant.span(),
-                "Enums variants cannot have `skip`, `default`, or `union_field` attributes.",
-            );
+        variant.span(),
+        "Enums variants cannot have `skip`, `default`, `read_with`, `write_with`, or `union_field` attributes.",
+      );
         }
 
         if matches!(field_type, FieldType::EnumVariant)
@@ -226,10 +305,11 @@ impl FieldInfo {
             has_phantom_in_variant: is_phantom,
             is_union_field: false,
             is_optional: false,
-            _is_boxed: is_boxed,
             skip_read: false,
             skip_write: false,
             default_override: None,
+            read_override: None,
+            write_override: None,
         })
     }
 }
@@ -254,7 +334,7 @@ impl FieldType {
     }
     fn parse_type(ty: &Type, specifier: FieldAttributeTypeSpecifier) -> Result<Self> {
         match ty {
-            Type::Tuple(tuple) if tuple.elems.is_empty() => Ok(FieldType::Void()),
+            Type::Tuple(tuple) if tuple.elems.is_empty() => Ok(FieldType::Void),
             Type::Path(path) => {
                 let path = &path.path;
                 let last_segment = path.segments.last().unwrap();
@@ -350,6 +430,8 @@ struct FieldAttributesInfo {
     pub skip_read: bool,
     pub skip_write: bool,
     pub union_field: bool,
+    pub read_override: Option<Path>,
+    pub write_override: Option<Path>,
 }
 
 impl FieldAttributesInfo {
@@ -363,6 +445,8 @@ impl FieldAttributesInfo {
             skip_read: false,
             skip_write: false,
             union_field: false,
+            read_override: None,
+            write_override: None,
         };
 
         let mut processed_attrs = HashMap::new();
@@ -381,42 +465,60 @@ impl FieldAttributesInfo {
                     let lit_str = meta.value()?.parse::<LitStr>()?.value();
 
                     match lit_str.as_str() {
-            "enum" => {
-              attr_info.type_specifier = FieldAttributeTypeSpecifier::Enum;
-              FieldAttribute::Type(meta.path.clone())
-            }
-            "enum_remote" => {
-              attr_info.type_specifier = FieldAttributeTypeSpecifier::EnumRemote;
-              FieldAttribute::Type(meta.path.clone())
-            }
-            "group" => {
-              attr_info.type_specifier = FieldAttributeTypeSpecifier::GroupOrUnion;
-              FieldAttribute::Type(meta.path.clone())
-            }
-            "union" => {
-              attr_info.type_specifier = FieldAttributeTypeSpecifier::GroupOrUnion;
-              FieldAttribute::Type(meta.path.clone())
-            }
-            "unnamed_union" => {
-              attr_info.type_specifier = FieldAttributeTypeSpecifier::UnnamedUnion;
-              FieldAttribute::Type(meta.path.clone())
-            }
-            "data" => {
-              attr_info.type_specifier = FieldAttributeTypeSpecifier::Data;
-              FieldAttribute::Type(meta.path.clone())
-            }
-            _ => {
-              return Err(meta.error(
+                        "enum" => {
+                            attr_info.type_specifier = FieldAttributeTypeSpecifier::Enum;
+                            FieldAttribute::Type(meta.path.clone())
+                        }
+                        "enum_remote" => {
+                            attr_info.type_specifier = FieldAttributeTypeSpecifier::EnumRemote;
+                            FieldAttribute::Type(meta.path.clone())
+                        }
+                        "group" => {
+                            attr_info.type_specifier = FieldAttributeTypeSpecifier::GroupOrUnion;
+                            FieldAttribute::Type(meta.path.clone())
+                        }
+                        "union" => {
+                            attr_info.type_specifier = FieldAttributeTypeSpecifier::GroupOrUnion;
+                            FieldAttribute::Type(meta.path.clone())
+                        }
+                        "unnamed_union" => {
+                            attr_info.type_specifier = FieldAttributeTypeSpecifier::UnnamedUnion;
+                            FieldAttribute::Type(meta.path.clone())
+                        }
+                        "data" => {
+                            attr_info.type_specifier = FieldAttributeTypeSpecifier::Data;
+                            FieldAttribute::Type(meta.path.clone())
+                        }
+                        _ => {
+                            return Err(meta.error(
                 "expected `enum`, `enum_remote`, `group`, `union`, `unnamed_union`, or `data`",
-              ))
-            }
-          }
+              ));
+                        }
+                    }
                 } else if meta.path.is_ident("default") {
                     let path = meta.value()?.parse::<LitStr>()?.parse::<Path>()?;
 
                     if path == as_turbofish(&path) {
                         attr_info.default = Some(path.clone());
                         FieldAttribute::Default(meta.path.clone())
+                    } else {
+                        return Err(meta.error("not in turbofish format"));
+                    }
+                } else if meta.path.is_ident("read_with") {
+                    let path = meta.value()?.parse::<LitStr>()?.parse::<Path>()?;
+
+                    if path == as_turbofish(&path) {
+                        attr_info.read_override = Some(path.clone());
+                        FieldAttribute::ReadWith(meta.path.clone())
+                    } else {
+                        return Err(meta.error("not in turbofish format"));
+                    }
+                } else if meta.path.is_ident("write_with") {
+                    let path = meta.value()?.parse::<LitStr>()?.parse::<Path>()?;
+
+                    if path == as_turbofish(&path) {
+                        attr_info.write_override = Some(path.clone());
+                        FieldAttribute::WriteWith(meta.path.clone())
                     } else {
                         return Err(meta.error("not in turbofish format"));
                     }
@@ -435,7 +537,8 @@ impl FieldAttributesInfo {
                 } else {
                     return Err(meta.error(
                         "expected `name`, `type`, `skip`, `skip_read`, \
-                `skip_write`, `default`, or `union_variant`",
+                `skip_write`, `default`, `read_with`, \
+                `write_with`, or `union_variant`",
                     ));
                 };
 
@@ -462,7 +565,7 @@ impl FieldAttributesInfo {
                     return error(
                         ident.span(),
                         "`default` attribute with no `skip` or `skip_read` will never be used",
-                    )
+                    );
                 }
                 FieldAttribute::Skip(ident)
                     if processed_attrs.values().any(|a| {
@@ -475,7 +578,7 @@ impl FieldAttributesInfo {
                     return error(
                         ident.span(),
                         "`skip` specified in additon to `skip_read` and/or `skip_write`",
-                    )
+                    );
                 }
                 _ => {}
             }
@@ -494,6 +597,8 @@ enum FieldAttribute {
     SkipRead(Path),
     SkipWrite(Path),
     UnionField(Path),
+    ReadWith(Path),
+    WriteWith(Path),
 }
 
 impl ToTokens for FieldAttribute {
@@ -506,6 +611,8 @@ impl ToTokens for FieldAttribute {
             FieldAttribute::SkipRead(a) => tokens.extend(a.into_token_stream()),
             FieldAttribute::SkipWrite(a) => tokens.extend(a.into_token_stream()),
             FieldAttribute::UnionField(a) => tokens.extend(a.into_token_stream()),
+            FieldAttribute::ReadWith(a) => tokens.extend(a.into_token_stream()),
+            FieldAttribute::WriteWith(a) => tokens.extend(a.into_token_stream()),
         }
     }
 }
@@ -554,9 +661,9 @@ fn get_variant_type(fields: &Fields) -> Result<(Option<&Type>, bool)> {
                         return error(
                             second_field_type.span(),
                             "second type of an enum can only be `PhantomData<T>`",
-                        )
+                        );
                     }
-                };
+                }
                 Ok((Some(&fields.unnamed.first().unwrap().ty), true))
             }
             _ => error(

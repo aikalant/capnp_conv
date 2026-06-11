@@ -81,7 +81,7 @@ pub struct RustStructGroup {
 ```
 
 ### Enums
-The macro has two options when it comes to enums: `enum` and `enum_remote`. Because code generated capnp files already contain enum definitions, it is possible to use them directly with `enum`. This eliminates the need to write an extra enum definition, but there are some times when it is useful to define a separate enum, for example, if it is necessary to derive traits or use other macros on the enum. For these cases, use `enum_remote` with a separately defined rust enum. When used on a rust enum, the `capnp_conv` macro generates the `from`/`into` trait implementations for its capnp counterpart.
+The macro has two options when it comes to enums: `enum` and `enum_remote`. Because code generated capnp files already contain enum definitions, it is possible to use them directly with `enum`. This eliminates the need to write an extra enum definition, but there are some times when it is useful to define a separate enum, for example, if it is necessary to derive traits or use other macros on the enum. For these cases, use `enum_remote` with a separately defined rust enum. When used on a rust enum, the `capnp_conv` macro generates the `From`/`Into` trait implementations for its capnp counterpart.
 
 ```capnp
 enum CapnpEnum {
@@ -161,6 +161,56 @@ pub struct RustStructUnion {
   val1: Option<()>,
   #[capnp_conv(union_variant)]
   val2: Option<()>,
+}
+```
+
+### Non Exhaustive Flag
+
+Generally capnp enums and unions must have the same variants as their rust counterparts, otherwise the macro will genreate a build error. A `non_exhaustive` flag can be specified on the capnp_conv macro to relax this requirement. This will allow additive changes to schema unions and enums, which, when encountered at runtime, will generate runtime exceptions. The `From` implementation fo the enum is also changed to a `TryFrom` implementation instead.
+
+```capnp
+enum TestEnum {
+  val1 @0;
+  val2 @1;
+  extra @2;
+}
+
+struct TestUnion {
+  union {
+    unionVal1 @0 :Void;
+    unionVal2 @1 :Void;
+    extra @2 :Void;
+  }
+}
+```
+```rust
+#[capnp_conv(TestEnum, non_exhaustive)]           // <------------ flag
+pub enum TestEnum {
+  Val1,
+  Val2,
+}
+
+#[capnp_conv(test_union, non_exhaustive)]          // <------------ flag
+pub struct TestUnion {
+  #[capnp_conv(union_variant)]
+  pub union_val1: Option<()>,
+  #[capnp_conv(union_variant)]
+  pub union_val2: Option<()>,
+}
+```
+
+Note that this only applies to additive changes. This will still result in a build error for example:
+
+```capnp
+enum TestEnum {
+  val1 @0;
+}
+```
+```rust
+#[capnp_conv(TestEnum, non_exhaustive)]
+pub enum TestEnum {
+  Val1,
+  Val2,
 }
 ```
 
@@ -319,6 +369,54 @@ struct ParentStruct(T,Y,R) {
    TVal(T),
  }
  ``` 
+
+ ### Write/Read overrides
+
+ Fields can have custom reader/write implementations to allow arbitrary or derivative data to be injected when reading or writing a capnp_conv struct from/into capnp messages by using the `read_with` and `write_with` field attributes.
+
+```capnp
+ struct CapnpStruct {
+  integer @0 :Int16;
+  data @1 :Data;
+}
+```
+
+```rust
+#[capnp_conv(capnp_struct)]
+pub struct RustStruct {
+  #[capnp_conv(read_with = "read_integer")]
+  pub integer: i16,
+  #[capnp_conv(write_with = "write_data")]
+  #[capnp_conv(read_with = "read_data")]
+  pub data: String,
+}
+
+fn read_integer(
+  reader: <capnp_struct::Owned as capnp::traits::Owned>::Reader<'_>,
+) -> Result<i16, capnp::Error> {
+  // Increment the integer value from the message by 1 when reading
+  Ok(reader.get_integer() + 1)
+}
+
+fn read_data(
+  reader: <capnp_struct::Owned as capnp::traits::Owned>::Reader<'_>,
+) -> Result<String, capnp::Error> {
+  // Despite the schema type being "Data", we can add an arbitrary pair
+  // of read/write functions to transform it into an entirely different type
+  let data = reader.get_data()?;
+  let string = std::str::from_utf8(data).unwrap();
+  Ok(string.to_owned())
+}
+
+fn write_data(
+  this: &RustStruct,
+  builder: &mut <capnp_struct::Owned as capnp::traits::Owned>::Builder<'_>,
+) {
+  builder.set_data(this.data.as_bytes());
+}
+```
+
+`read_with` and `write_with` are mutually exclusive with `skip_read` and `skip_write` respectively. Otherwise, the same limitations as the `skip_read/write` attributes apply.
 
  ## Future work
 

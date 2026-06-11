@@ -69,7 +69,12 @@ impl StructInfo {
         let (non_union_field_names, non_union_readers): (Vec<&Ident>, Vec<TokenStream2>) =
             non_union_fields
                 .iter()
-                .map(|field| (&field.rust_name, field.generate_field_reader(false)))
+                .map(|field| {
+                    (
+                        &field.rust_name,
+                        field.generate_field_reader(false, !self.generics.is_empty()),
+                    )
+                })
                 .unzip();
 
         let match_arms: Vec<TokenStream2> = union_fields
@@ -82,7 +87,8 @@ impl StructInfo {
                     .map(|union_field| {
                         let field_name = &union_field.rust_name;
                         if &field.rust_name == field_name {
-                            let field_reader = union_field.generate_field_reader(true);
+                            let field_reader =
+                                union_field.generate_field_reader(true, !self.generics.is_empty());
                             quote!(#field_name: Some(#field_reader))
                         } else {
                             quote!(#field_name: None)
@@ -103,6 +109,14 @@ impl StructInfo {
             quote! {
               Ok(Self {
                 #(#non_union_field_names: #non_union_readers,)*
+              })
+            }
+        } else if self.non_exhaustive {
+            quote! {
+              #(let #non_union_field_names = #non_union_readers;)*
+              Ok(match reader.which()? {
+                #(#match_arms,)*
+                _ => return Err(::capnp::Error::failed("Unknown union variant".to_string()))
               })
             }
         } else {
@@ -130,13 +144,36 @@ impl EnumInfo {
 
             quote!(#rust_name::#rust_field_name => #capnp_path::#capnp_field_name)
         });
-        quote! {
-          impl ::capnp_conv::RemoteEnum<#capnp_path> for #rust_name {
-            fn to_capnp_enum(&self) -> #capnp_path {
+        let to = quote! {
+          fn to_capnp_enum(&self) -> #capnp_path {
               match self {
                 #(#match_arms,)*
               }
             }
+        };
+        let from = if self.non_exhaustive {
+            quote! {
+              fn try_from_capnp_enum(other: &#capnp_path) -> ::capnp::Result<Self>
+                where
+                  Self: Sized,
+                {
+                  match Self::try_from(*other) {
+                    Ok(val) => Ok(val),
+                    Err(e) => Err(::capnp::Error::failed(format!("{e}"))),
+                  }
+                }
+            }
+        } else {
+            quote! {
+              fn try_from_capnp_enum(other: &#capnp_path) -> ::capnp::Result<Self> where Self : Sized {
+                Ok(Self::from(*other))
+              }
+            }
+        };
+        quote! {
+          impl ::capnp_conv::RemoteEnum<#capnp_path> for #rust_name {
+            #to
+            #from
           }
         }
     }
@@ -158,14 +195,28 @@ impl EnumInfo {
 
             quote!(#capnp_path::#capnp_field_name => #rust_name::#rust_field_name)
         });
-        quote! {
-          impl ::core::convert::From<#capnp_path> for #rust_name {
-            fn from(other: #capnp_path) -> Self {
-              match other {
-                #(#match_arms,)*
+        if self.non_exhaustive {
+            quote! {
+              impl ::core::convert::TryFrom<#capnp_path> for #rust_name {
+                type Error = ::capnp::Error;
+                fn try_from(other: #capnp_path) -> ::capnp::Result<Self> {
+                  Ok(match other {
+                    #(#match_arms,)*
+                    _ => return Err(::capnp::Error::failed("Unknown enum variant".to_string()))
+                  })
+                }
               }
             }
-          }
+        } else {
+            quote! {
+              impl ::core::convert::From<#capnp_path> for #rust_name {
+                fn from(other: #capnp_path) -> Self {
+                  match other {
+                    #(#match_arms,)*
+                  }
+                }
+              }
+            }
         }
     }
 
@@ -202,7 +253,7 @@ impl EnumInfo {
         let rust_variant_name = &field.rust_name;
         let capnp_field_name = field.get_capnp_name(ToSnakeCase::to_snake_case);
         let capnp_variant_name = to_ident(capnp_field_name.to_upper_camel_case());
-        let field_reader = field.generate_field_reader(true);
+        let field_reader = field.generate_field_reader(true, !self.generics.is_empty());
         let variant_fields = if field.has_phantom_in_variant {
           quote!(#field_reader, ::std::marker::PhantomData)
         } else {
@@ -215,9 +266,16 @@ impl EnumInfo {
       })
       .collect();
 
+        let fallback = if self.non_exhaustive {
+            quote!()
+        } else {
+            quote!(_ => return Err(::capnp::Error::failed("Unknown union variant".to_string())))
+        };
+
         let reader_body = quote! {
           Ok(match reader.which()? {
             #(#match_arm_readers,)*
+            #fallback,
           })
         };
 
@@ -234,12 +292,12 @@ impl EnumInfo {
 }
 
 impl FieldInfo {
-    fn generate_field_reader(&self, pre_fetched: bool) -> TokenStream2 {
+    fn generate_field_reader(&self, pre_fetched: bool, reborrow_readers: bool) -> TokenStream2 {
         if matches!(self.field_type, FieldType::Phantom) {
             quote!(::std::marker::PhantomData)
         } else if self.skip_read {
             let field_reader = match &self.default_override {
-                Some(default_override) => quote!(#default_override()),
+                Some(default_override) => quote!((#default_override)()),
                 None => self.generate_default_reader(),
             };
             if self.is_optional {
@@ -247,12 +305,17 @@ impl FieldInfo {
             } else {
                 field_reader
             }
+        } else if let Some(read_override) = &self.read_override {
+            quote!((#read_override)(reader)?)
         } else {
             let capnp_field_name = self.get_capnp_name(ToSnakeCase::to_snake_case);
             if self.is_optional {
-                let field_reader =
-                    self.field_type
-                        .generate_field_reader(quote!(reader), &capnp_field_name, false);
+                let field_reader = self.field_type.generate_field_reader(
+                    quote!(reader),
+                    &capnp_field_name,
+                    false,
+                    reborrow_readers,
+                );
                 if is_ptr_type(&self.field_type) {
                     let checker = format_ident!("has_{}", capnp_field_name);
                     quote! {
@@ -270,15 +333,19 @@ impl FieldInfo {
                 } else {
                     quote!(reader)
                 };
-                self.field_type
-                    .generate_field_reader(reader_name, &capnp_field_name, pre_fetched)
+                self.field_type.generate_field_reader(
+                    reader_name,
+                    &capnp_field_name,
+                    pre_fetched,
+                    reborrow_readers,
+                )
             }
         }
     }
 
     fn generate_default_reader(&self) -> TokenStream2 {
         let path = match &self.field_type {
-            FieldType::Void() => return quote!(()),
+            FieldType::Void => return quote!(()),
             FieldType::Primitive(path) => path,
             FieldType::Data(path) => path,
             FieldType::Text(path) => path,
@@ -322,6 +389,8 @@ impl FieldInfo {
 
         if self.skip_write || matches!(self.field_type, FieldType::Phantom) {
             quote! {} //noop
+        } else if let Some(write_override) = &self.write_override {
+            quote!((#write_override)(&self, &mut builder))
         } else if self.is_optional {
             let field_name = quote!(val);
             let field_writer =
@@ -358,17 +427,23 @@ impl FieldType {
         reader_name: impl ToTokens,
         capnp_field_name: &str,
         reader_pre_fetched: bool,
+        reborrow_readers: bool,
     ) -> TokenStream2 {
         let getter = format_ident!("get_{}", capnp_field_name);
+        let reader = if reborrow_readers {
+            quote!(#reader_name.reborrow())
+        } else {
+            quote!(#reader_name)
+        };
         let getter = if reader_pre_fetched {
             quote!(#reader_name)
         } else {
-            quote!(#reader_name.#getter())
+            quote!(#reader.#getter())
         };
         match self {
             FieldType::Phantom => unimplemented!(),
             FieldType::EnumVariant => unimplemented!(),
-            FieldType::Void() => quote!(()),
+            FieldType::Void => quote!(()),
             FieldType::Primitive(_) => quote!(#getter),
             FieldType::Data(_) => quote!(#getter?.to_owned()),
             FieldType::Text(_) => quote!(#getter?.to_string()?),
@@ -376,7 +451,9 @@ impl FieldType {
                 let struct_path = as_turbofish(struct_path);
                 quote!(#struct_path::read(#getter?)?)
             }
-            FieldType::EnumRemote(_) => quote!(#getter?.into()),
+            FieldType::EnumRemote(_) => {
+                quote!(::capnp_conv::RemoteEnum::try_from_capnp_enum(&#getter?)?)
+            }
             FieldType::Enum(_) => quote!(#getter?),
             FieldType::GroupOrUnion(path) => {
                 let path = as_turbofish(path);
@@ -384,7 +461,7 @@ impl FieldType {
             }
             FieldType::UnnamedUnion(union_path) => {
                 let union_path = as_turbofish(union_path);
-                quote!(#union_path::read(#reader_name)?)
+                quote!(#union_path::read(#reader)?)
             }
             FieldType::List(item_type) => {
                 let item_getter = item_type.generate_struct_field_reader_list_item();
@@ -409,7 +486,7 @@ impl FieldType {
 
     fn generate_struct_field_reader_list_item(&self) -> TokenStream2 {
         match self {
-            FieldType::Void() => quote!(()),
+            FieldType::Void => quote!(()),
             FieldType::Primitive(_) => quote!(reader.get(idx)),
             FieldType::Data(_) => quote!(reader.get(idx)?.to_owned()),
             FieldType::Text(_) => quote!(reader.get(idx)?.to_string()?),
@@ -456,10 +533,10 @@ impl FieldType {
         match self {
             FieldType::Phantom => unimplemented!(),
             FieldType::EnumVariant => unimplemented!(),
-            FieldType::Void() => quote!(builder.#setter(())),
+            FieldType::Void => quote!(builder.#setter(())),
             FieldType::Primitive(_) => quote!(builder.#setter(#deref_field)),
             FieldType::Data(_) => quote!(builder.#setter(#ref_field)),
-            FieldType::Text(_) => quote!(builder.#setter(#field.as_str())),
+            FieldType::Text(_) => quote!(builder.#setter(&#ref_field)),
             FieldType::Struct(_) => quote!(#field.write(builder.reborrow().#initializer())),
             FieldType::EnumRemote(_) => {
                 quote!(builder.#setter(::capnp_conv::RemoteEnum::to_capnp_enum(#ref_field)))
@@ -489,7 +566,7 @@ impl FieldType {
     }
     fn generate_struct_field_writer_list_item(&self) -> TokenStream2 {
         match self {
-            FieldType::Void() => quote!(builder.set(idx as u32, ())),
+            FieldType::Void => quote!(builder.set(idx as u32, ())),
             FieldType::Primitive(_) => quote!(builder.set(idx as u32, *item)),
             FieldType::Data(_) => quote!(builder.set(idx as u32, item)),
             FieldType::Text(_) => quote!(builder.set(idx as u32, item)),
