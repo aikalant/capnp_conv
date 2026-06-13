@@ -333,6 +333,12 @@ pub enum RustStructUnionVal<T,Y> {
 
 Limitations:
 
+Generics are limited to pointer types by `capnp` itself, and `capnp_conv` has some additional constraints in the following not being supported:
+
+- `List(UInt8)`
+- `List(<struct>)`
+- `List(<List>)`
+
 One feature of capnp schemas that is not easily reproduced in rust is nested struct definitions. This is not typically an issue as they can be implemented as flattened rust structs, but when combined with the fact that nested capnp structs/unions/groups have access to all the generic types of all of their ancestors, this can be problematic for rust models.
 
 For example:

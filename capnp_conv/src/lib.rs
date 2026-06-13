@@ -1,3 +1,5 @@
+mod impls;
+
 use capnp::{traits::Owned, Result};
 pub use capnp_conv_macros::capnp_conv;
 
